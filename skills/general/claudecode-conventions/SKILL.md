@@ -1,7 +1,8 @@
 ---
-name: Claude Code Conventions
+name: claudecode-conventions
 description: Guidelines for Claude Code to maintain project structure and documentation naming.
 category: General
+version: 1.1.0
 ---
 
 # Claude Code Conventions
@@ -16,9 +17,5 @@ This skill ensures that Claude Code (and other agents) follows specific project-
     1. **Extract Knowledge**: Move all useful knowledge, rules, and context from `CLAUDE.md` into `AGENTS.md`.
     2. **Reset `CLAUDE.md`**: Replace the contents of `CLAUDE.md` with the following exact content:
        ```markdown
-       # CLAUDE.md
-
-       This repository uses `AGENTS.md` as the single source of truth for all agent instructions.
-
-       See `AGENTS.md` at the repository root.
+       @AGENTS.md
        ```
