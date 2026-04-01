@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Langfuse Hook"
+  short_description: "Install Codex Langfuse transcript hook."
+  default_prompt: "Use $codex-langfuse-hook to install or update the global Codex Langfuse stop hook and tell me which LANGFUSE variables I still need to set in ~/.codex/.env."
+
+policy:
+  allow_implicit_invocation: true
