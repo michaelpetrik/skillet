@@ -49,3 +49,19 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill publish-skill-to-skillet
   ```
+
+## Research
+
+- **[Multi-Analyst Synthesis](./research/multi-analyst-synthesis/SKILL.md)**: Parallel multi-pass analysis for comparative research, due diligence, literature scans, decision memo prep, structured brainstorming, multi-source synthesis, product or market research, risk assessment, investigative work, codebase analysis, and other knowledge-work where distinct analytic perspectives should work in parallel before one consolidator and one critical reviewer shape the final deliverable. Use when the task is ambiguous, high-stakes, evidence-rich, or benefits from competing frames; avoid for simple fact lookups, deterministic transforms, routine drafting, narrow tasks with one obvious authoritative path, or cases where direct tools answer the question better than orchestration.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill multi-analyst-synthesis
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill multi-analyst-synthesis
+  ```

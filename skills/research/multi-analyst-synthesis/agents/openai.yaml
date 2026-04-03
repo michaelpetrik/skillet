@@ -1,0 +1,4 @@
+interface:
+  display_name: "Multi-Analyst Synthesis"
+  short_description: "Parallel analysis with critique and synthesis"
+  default_prompt: "Use $multi-analyst-synthesis only when parallel, genuinely different analytic frames will improve the result; then run parallel analysis, consolidate into the right deliverable for the task, and pressure-test the result before delivery."
