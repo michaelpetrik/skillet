@@ -1,0 +1,7 @@
+interface:
+  display_name: "Publish Skill To Skillet"
+  short_description: "Publish a skill bundle into skillet."
+  default_prompt: "Use $publish-skill-to-skillet to publish a local skill into michaelpetrik/skillet under the right skills category, update CHANGELOG.md when needed, and prefer remote mode unless I ask for a local checkout."
+
+policy:
+  allow_implicit_invocation: true

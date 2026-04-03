@@ -33,3 +33,19 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill codex-langfuse-hook
   ```
+
+## Misc
+
+- **[Publish Skill To Skillet](./misc/publish-skill-to-skillet/SKILL.md)**: Publish or sync a local Codex skill bundle into the skillet repository under skills/<category>/<skill-name>, including SKILL.md, bundled resources, CHANGELOG.md, and skills/README.md updates.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill publish-skill-to-skillet
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill publish-skill-to-skillet
+  ```
