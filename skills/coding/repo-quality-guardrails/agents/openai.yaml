@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Quality Guardrails"
+  short_description: "Audit or add honest repo-local guardrails"
+  default_prompt: "Use $repo-quality-guardrails to add or audit repo-local quality and security guardrails, separating policy from real enforcement."
