@@ -2,7 +2,7 @@
 name: codex-langfuse-hook
 description: Install or repair the global Codex Stop hook that exports session transcripts to Langfuse, then guide the user to set the required `LANGFUSE_*` globals in `~/.codex/.env`. Use when the user wants Codex sessions sent to Langfuse, wants the hook reinstalled, or wants project-local dotenv overrides for Langfuse routing.
 category: Tracing
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Codex Langfuse Hook

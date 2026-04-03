@@ -17,6 +17,8 @@ These keys are the baseline global variables expected by the installer in `~/.co
 - `CODEX_LANGFUSE_REDACTION_MODE=basic`
 - `CODEX_LANGFUSE_RAW_CHUNK_BYTES=180000`
 - `CODEX_LANGFUSE_TIMEOUT_SECONDS=4`
+- `CODEX_LANGFUSE_RETRY_BACKOFF_SECONDS=15`
+- `CODEX_LANGFUSE_INSECURE_TLS=true|false`
 
 ## Override Precedence
 

@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import httpx
 import json
 import os
 import re
@@ -18,6 +19,26 @@ from typing import Any
 
 from dotenv import dotenv_values
 from langfuse import Langfuse
+try:
+    from langfuse import propagate_attributes
+except ImportError:  # pragma: no cover
+    propagate_attributes = None
+try:
+    from langfuse.api.ingestion.types.create_event_body import CreateEventBody
+    from langfuse.api.ingestion.types.create_generation_body import CreateGenerationBody
+    from langfuse.api.ingestion.types.ingestion_event import (
+        IngestionEvent_EventCreate,
+        IngestionEvent_GenerationCreate,
+        IngestionEvent_TraceCreate,
+    )
+    from langfuse.api.ingestion.types.trace_body import TraceBody
+except ImportError:  # pragma: no cover
+    CreateEventBody = None
+    CreateGenerationBody = None
+    IngestionEvent_EventCreate = None
+    IngestionEvent_GenerationCreate = None
+    IngestionEvent_TraceCreate = None
+    TraceBody = None
 
 
 CODEX_HOME = Path.home() / ".codex"
@@ -25,14 +46,17 @@ SESSIONS_DIR = CODEX_HOME / "sessions"
 STATE_DIR = CODEX_HOME / "langfuse-export"
 SPOOL_DIR = STATE_DIR / "spool"
 EXPORTED_DIR = STATE_DIR / "exported"
+HEALTH_DIR = STATE_DIR / "health"
 LOG_PATH = CODEX_HOME / "log" / "langfuse-export.log"
 LOCK_PATH = STATE_DIR / "hook.lock"
 
 OVERRIDE_FILENAMES = (".codex.env", ".env.local", ".env")
 PROJECT_ENV_PATH_VAR = "CODEX_LANGFUSE_PROJECT_ENV_PATH"
 DEFAULT_TIMEOUT_SECONDS = 4
+DEFAULT_RETRY_BACKOFF_SECONDS = 15
 DEFAULT_RAW_CHUNK_BYTES = 180_000
 MAX_RECENT_TRANSCRIPTS = 120
+MAX_RETRY_BACKOFF_SECONDS = 300
 
 SECRET_VALUE_PATTERNS = (
     re.compile(r"(?im)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD))\s*=\s*([^\s\"']+|\"[^\"]*\"|'[^']*')"),
@@ -41,6 +65,37 @@ SECRET_VALUE_PATTERNS = (
     re.compile(r"(?i)\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     re.compile(r"(?i)\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
 )
+INSECURE_TLS_ENV_VAR = "CODEX_LANGFUSE_INSECURE_TLS"
+RETRY_BACKOFF_ENV_VAR = "CODEX_LANGFUSE_RETRY_BACKOFF_SECONDS"
+RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+RETRYABLE_ERROR_MARKERS = (
+    "cannot send a request, as the client has been closed",
+    "connection reset",
+    "connection refused",
+    "internal server error",
+    "remote protocol error",
+    "server disconnected",
+    "temporarily unavailable",
+    "timed out",
+    "timeout",
+)
+MODEL_PRICING_PER_TOKEN = {
+    "gpt-5.4": {"input": 2.50 / 1_000_000, "cached_input": 0.25 / 1_000_000, "output": 15.0 / 1_000_000},
+    "gpt-5.4-mini": {"input": 0.75 / 1_000_000, "cached_input": 0.075 / 1_000_000, "output": 4.50 / 1_000_000},
+    "gpt-5.4-nano": {"input": 0.20 / 1_000_000, "cached_input": 0.02 / 1_000_000, "output": 1.25 / 1_000_000},
+    "gpt-5.4-pro": {"input": 30.0 / 1_000_000, "cached_input": None, "output": 180.0 / 1_000_000},
+    "gpt-5.3-codex": {"input": 1.75 / 1_000_000, "cached_input": 0.175 / 1_000_000, "output": 14.0 / 1_000_000},
+    "gpt-5.2-codex": {"input": 1.75 / 1_000_000, "cached_input": 0.175 / 1_000_000, "output": 14.0 / 1_000_000},
+    "gpt-5.1": {"input": 1.25 / 1_000_000, "cached_input": 0.125 / 1_000_000, "output": 10.0 / 1_000_000},
+    "gpt-5.1-codex": {"input": 1.25 / 1_000_000, "cached_input": 0.125 / 1_000_000, "output": 10.0 / 1_000_000},
+    "gpt-5.1-codex-max": {"input": 1.25 / 1_000_000, "cached_input": 0.125 / 1_000_000, "output": 10.0 / 1_000_000},
+    "gpt-5.1-codex-mini": {"input": 0.25 / 1_000_000, "cached_input": 0.025 / 1_000_000, "output": 2.0 / 1_000_000},
+    "gpt-5": {"input": 1.25 / 1_000_000, "cached_input": 0.125 / 1_000_000, "output": 10.0 / 1_000_000},
+    "gpt-5-mini": {"input": 0.25 / 1_000_000, "cached_input": 0.025 / 1_000_000, "output": 2.0 / 1_000_000},
+    "gpt-5-codex": {"input": 1.25 / 1_000_000, "cached_input": 0.125 / 1_000_000, "output": 10.0 / 1_000_000},
+    "codex-mini-latest": {"input": 1.50 / 1_000_000, "cached_input": 0.375 / 1_000_000, "output": 6.0 / 1_000_000},
+}
+MAX_INGESTION_BATCH_BYTES = 3_000_000
 
 
 @dataclass
@@ -55,8 +110,22 @@ class Settings:
     redaction_mode: str
     raw_chunk_bytes: int
     timeout_seconds: int
+    retry_backoff_seconds: int
+    insecure_tls: bool
     cwd: Path
     override_path: Path | None
+
+
+@dataclass
+class TurnSnapshot:
+    turn_id: str | None
+    model: str | None
+    started_at: str | None
+    ended_at: str | None
+    input_text: str | None
+    output_text: str | None
+    raw_usage: dict[str, int] | None
+    usage_details: dict[str, Any] | None
 
 
 @dataclass
@@ -71,11 +140,22 @@ class Snapshot:
     repo_root: str | None
     cli_version: str | None
     source: str | None
+    model: str | None
     started_at: str | None
     last_event_at: str | None
     summary: dict[str, Any]
     raw_chunks: list[str]
     tool_names: list[str]
+    turns: list[TurnSnapshot]
+
+
+@dataclass
+class HealthState:
+    consecutive_failures: int
+    last_error: str | None
+    last_failure_at: str | None
+    retry_at: str | None
+    retry_at_epoch: float
 
 
 def log(message: str) -> None:
@@ -230,6 +310,13 @@ def resolve_settings(cwd: Path) -> Settings:
         minimum=1,
         maximum=20,
     )
+    retry_backoff_seconds = parse_int(
+        merged.get(RETRY_BACKOFF_ENV_VAR),
+        default=DEFAULT_RETRY_BACKOFF_SECONDS,
+        minimum=5,
+        maximum=MAX_RETRY_BACKOFF_SECONDS,
+    )
+    insecure_tls = parse_bool(merged.get(INSECURE_TLS_ENV_VAR), False)
 
     if not enabled or not public_key or not secret_key or not base_url:
         enabled = False
@@ -245,6 +332,8 @@ def resolve_settings(cwd: Path) -> Settings:
         redaction_mode=redaction_mode,
         raw_chunk_bytes=raw_chunk_bytes,
         timeout_seconds=timeout_seconds,
+        retry_backoff_seconds=retry_backoff_seconds,
+        insecure_tls=insecure_tls,
         cwd=cwd.resolve(),
         override_path=override_path.resolve() if override_path else None,
     )
@@ -420,6 +509,114 @@ def chunk_text_by_bytes(text: str, max_bytes: int) -> list[str]:
     return chunks
 
 
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def stable_identifier(*parts: str, length: int = 32) -> str:
+    payload = "|".join(parts)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:length]
+
+
+def canonical_model_name(model: str | None) -> str | None:
+    if not model:
+        return None
+
+    normalized = model.strip().lower()
+    if not normalized:
+        return None
+    if normalized.startswith("openai/"):
+        normalized = normalized.split("/", 1)[1]
+
+    for candidate in sorted(MODEL_PRICING_PER_TOKEN, key=len, reverse=True):
+        if normalized == candidate:
+            return candidate
+        if normalized.startswith(f"{candidate}-"):
+            suffix = normalized[len(candidate) :]
+            if suffix in {"-latest", "-chat-latest", "-spark"}:
+                return candidate
+            if re.fullmatch(r"-\d{4}-\d{2}-\d{2}", suffix):
+                return candidate
+    return None
+
+
+def normalize_usage_details(raw_usage: Any) -> tuple[dict[str, int], dict[str, Any]] | None:
+    if not isinstance(raw_usage, dict):
+        return None
+
+    normalized = {
+        "input_tokens": int(raw_usage.get("input_tokens") or 0),
+        "cached_input_tokens": int(raw_usage.get("cached_input_tokens") or 0),
+        "output_tokens": int(raw_usage.get("output_tokens") or 0),
+        "reasoning_output_tokens": int(raw_usage.get("reasoning_output_tokens") or 0),
+        "total_tokens": int(raw_usage.get("total_tokens") or 0),
+    }
+    if normalized["total_tokens"] <= 0:
+        normalized["total_tokens"] = normalized["input_tokens"] + normalized["output_tokens"]
+
+    usage_details: dict[str, Any] = {
+        "prompt_tokens": normalized["input_tokens"],
+        "completion_tokens": normalized["output_tokens"],
+        "total_tokens": normalized["total_tokens"],
+    }
+    if normalized["cached_input_tokens"] > 0:
+        usage_details["prompt_tokens_details"] = {"cached_tokens": normalized["cached_input_tokens"]}
+    if normalized["reasoning_output_tokens"] > 0:
+        usage_details["completion_tokens_details"] = {"reasoning_tokens": normalized["reasoning_output_tokens"]}
+
+    return normalized, usage_details
+
+
+def infer_cost_details(model: str | None, raw_usage: dict[str, int] | None) -> dict[str, float] | None:
+    canonical = canonical_model_name(model)
+    if canonical is None or raw_usage is None:
+        return None
+
+    pricing = MODEL_PRICING_PER_TOKEN.get(canonical)
+    if pricing is None:
+        return None
+
+    input_tokens = max(0, raw_usage.get("input_tokens", 0))
+    cached_input_tokens = max(0, raw_usage.get("cached_input_tokens", 0))
+    output_tokens = max(0, raw_usage.get("output_tokens", 0))
+    non_cached_input_tokens = max(0, input_tokens - cached_input_tokens)
+
+    input_cost = 0.0
+    if non_cached_input_tokens > 0 and pricing.get("input") is not None:
+        input_cost += non_cached_input_tokens * float(pricing["input"])
+    if cached_input_tokens > 0 and pricing.get("cached_input") is not None:
+        input_cost += cached_input_tokens * float(pricing["cached_input"])
+
+    output_cost = 0.0
+    if output_tokens > 0 and pricing.get("output") is not None:
+        output_cost = output_tokens * float(pricing["output"])
+
+    total_cost = input_cost + output_cost
+    if total_cost <= 0:
+        return None
+
+    return {
+        "input": input_cost,
+        "output": output_cost,
+        "total": total_cost,
+    }
+
+
+def append_turn(turns: list[TurnSnapshot], turn: TurnSnapshot | None) -> None:
+    if turn is None:
+        return
+    if any([turn.turn_id, turn.model, turn.input_text, turn.output_text, turn.raw_usage, turn.usage_details]):
+        turns.append(turn)
+
+
 def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
     wait_for_stable_file(path)
     raw_text = path.read_text(encoding="utf-8", errors="replace")
@@ -437,6 +634,9 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
     last_user_prompt: str | None = None
     last_assistant_message: str | None = None
     preferred_final_assistant: str | None = None
+    current_turn: TurnSnapshot | None = None
+    turns: list[TurnSnapshot] = []
+    session_model: str | None = None
 
     for line in raw_text.splitlines():
         if not line.strip():
@@ -458,7 +658,26 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
             session_meta = payload
             continue
 
+        if entry_type == "turn_context":
+            append_turn(turns, current_turn)
+            model = payload.get("model") if isinstance(payload.get("model"), str) else None
+            if model:
+                session_model = model
+            current_turn = TurnSnapshot(
+                turn_id=str(payload.get("turn_id")) if payload.get("turn_id") else None,
+                model=model,
+                started_at=timestamp if isinstance(timestamp, str) else None,
+                ended_at=timestamp if isinstance(timestamp, str) else None,
+                input_text=None,
+                output_text=None,
+                raw_usage=None,
+                usage_details=None,
+            )
+            continue
+
         if entry_type == "response_item":
+            if current_turn is not None and isinstance(timestamp, str):
+                current_turn.ended_at = timestamp
             payload_type = payload.get("type")
             if payload_type == "message":
                 role = payload.get("role")
@@ -467,12 +686,18 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
                     user_messages += 1
                     if text:
                         last_user_prompt = text
+                        if current_turn is not None and not current_turn.input_text:
+                            current_turn.input_text = text
                 elif role == "assistant":
                     assistant_messages += 1
                     if text:
                         last_assistant_message = text
                         if payload.get("phase") == "final":
                             preferred_final_assistant = text
+                            if current_turn is not None:
+                                current_turn.output_text = text
+                        elif current_turn is not None and not current_turn.output_text:
+                            current_turn.output_text = text
             elif payload_type == "function_call":
                 tool_calls += 1
                 name = payload.get("name")
@@ -480,9 +705,23 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
                     tool_names.add(name.strip())
             continue
 
+        if entry_type == "event_msg" and payload.get("type") == "token_count":
+            if current_turn is not None and isinstance(timestamp, str):
+                current_turn.ended_at = timestamp
+            info = payload.get("info")
+            if isinstance(info, dict) and current_turn is not None:
+                last_usage = normalize_usage_details(info.get("last_token_usage"))
+                if last_usage is not None:
+                    current_turn.raw_usage, current_turn.usage_details = last_usage
+            continue
+
         if entry_type == "event_msg" and payload.get("type") == "exec_command_end":
+            if current_turn is not None and isinstance(timestamp, str):
+                current_turn.ended_at = timestamp
             if payload.get("exit_code", 0) not in (0, None):
                 failed_tools += 1
+
+    append_turn(turns, current_turn)
 
     session_id = str(session_meta.get("id") or path.stem)
     trace_id = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
@@ -504,8 +743,10 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
             "assistant_messages": assistant_messages,
             "tool_calls": tool_calls,
             "failed_tools": failed_tools,
+            "turns": len(turns),
             "raw_parts": 0,
         },
+        "model": session_model,
         "tool_names": sorted(tool_names),
         "last_user_prompt": last_user_prompt,
         "last_assistant_message": preferred_final_assistant or last_assistant_message,
@@ -527,11 +768,13 @@ def build_snapshot(path: Path, settings: Settings, hook_event: str) -> Snapshot:
         repo_root=repo_root,
         cli_version=cli_version,
         source=source,
+        model=session_model,
         started_at=started_at,
         last_event_at=last_event_at,
         summary=summary,
         raw_chunks=raw_chunks,
         tool_names=sorted(tool_names),
+        turns=turns,
     )
 
 
@@ -556,6 +799,21 @@ def spool_path(snapshot_key: str) -> Path:
     return SPOOL_DIR / f"{snapshot_key}.json"
 
 
+def settings_target_fingerprint(settings: Settings) -> str:
+    basis = "|".join(
+        [
+            settings.base_url or "",
+            settings.public_key or "",
+            "tls:insecure" if settings.insecure_tls else "tls:strict",
+        ]
+    )
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()
+
+
+def health_path(settings: Settings) -> Path:
+    return HEALTH_DIR / f"{settings_target_fingerprint(settings)}.json"
+
+
 def is_exported(snapshot_key: str) -> bool:
     return exported_marker_path(snapshot_key).is_file()
 
@@ -576,8 +834,124 @@ def mark_exported(snapshot_key: str, settings: Settings, snapshot: Snapshot) -> 
     exported_marker_path(snapshot_key).write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
+def load_json_file(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_health_state(settings: Settings) -> HealthState | None:
+    payload = load_json_file(health_path(settings))
+    if not payload:
+        return None
+
+    retry_at_epoch_raw = payload.get("retry_at_epoch")
+    try:
+        retry_at_epoch = float(retry_at_epoch_raw or 0)
+    except (TypeError, ValueError):
+        retry_at_epoch = 0.0
+
+    return HealthState(
+        consecutive_failures=int(payload.get("consecutive_failures") or 0),
+        last_error=str(payload.get("last_error") or "") or None,
+        last_failure_at=str(payload.get("last_failure_at") or "") or None,
+        retry_at=str(payload.get("retry_at") or "") or None,
+        retry_at_epoch=retry_at_epoch,
+    )
+
+
+def save_health_state(settings: Settings, state: HealthState) -> None:
+    HEALTH_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "consecutive_failures": state.consecutive_failures,
+        "last_error": state.last_error,
+        "last_failure_at": state.last_failure_at,
+        "retry_at": state.retry_at,
+        "retry_at_epoch": state.retry_at_epoch,
+        "base_url": settings.base_url,
+        "public_key": settings.public_key,
+        "target_fingerprint": settings_target_fingerprint(settings),
+    }
+    health_path(settings).write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def clear_health_state(settings: Settings) -> None:
+    health_path(settings).unlink(missing_ok=True)
+
+
+def should_defer_exports(settings: Settings) -> HealthState | None:
+    state = load_health_state(settings)
+    if state is None:
+        return None
+    if state.retry_at_epoch <= time.time():
+        return None
+    return state
+
+
+def mark_server_unhealthy(settings: Settings, error: BaseException | str) -> HealthState:
+    now = datetime.now(timezone.utc)
+    current = load_health_state(settings)
+    failures = (current.consecutive_failures if current is not None else 0) + 1
+    retry_at_epoch = time.time() + settings.retry_backoff_seconds
+    state = HealthState(
+        consecutive_failures=failures,
+        last_error=str(error),
+        last_failure_at=now.isoformat(),
+        retry_at=datetime.fromtimestamp(retry_at_epoch, tz=timezone.utc).isoformat(),
+        retry_at_epoch=retry_at_epoch,
+    )
+    save_health_state(settings, state)
+    return state
+
+
+def extract_status_code(error: BaseException) -> int | None:
+    for candidate in (
+        getattr(error, "status_code", None),
+        getattr(getattr(error, "response", None), "status_code", None),
+    ):
+        if isinstance(candidate, int):
+            return candidate
+
+    match = re.search(r"status_code:\s*(\d{3})", str(error))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def is_retryable_export_error(error: BaseException) -> bool:
+    if isinstance(
+        error,
+        (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.NetworkError,
+            httpx.ProxyError,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+            httpx.TimeoutException,
+            httpx.TransportError,
+            httpx.WriteTimeout,
+        ),
+    ):
+        return True
+
+    status_code = extract_status_code(error)
+    if status_code is not None and (status_code in RETRYABLE_STATUS_CODES or status_code >= 500):
+        return True
+
+    message = str(error).lower()
+    return any(marker in message for marker in RETRYABLE_ERROR_MARKERS)
+
+
 def write_spool(snapshot_key: str, settings: Settings, snapshot: Snapshot, error: str) -> None:
     SPOOL_DIR.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    existing = load_json_file(spool_path(snapshot_key))
+    attempt_count = int(existing.get("attempt_count") or 0) + 1
     payload = {
         "snapshot_key": snapshot_key,
         "session_id": snapshot.session_id,
@@ -585,113 +959,378 @@ def write_spool(snapshot_key: str, settings: Settings, snapshot: Snapshot, error
         "cwd": str(snapshot.cwd),
         "override_path": str(settings.override_path) if settings.override_path else None,
         "hook_event": snapshot.hook_event,
-        "queued_at": datetime.now(timezone.utc).isoformat(),
+        "queued_at": existing.get("queued_at") or now,
+        "last_attempt_at": now,
+        "attempt_count": attempt_count,
         "last_error": error,
+        "target_fingerprint": settings_target_fingerprint(settings),
+        "base_url": settings.base_url,
     }
     spool_path(snapshot_key).write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
-def export_snapshot(settings: Settings, snapshot: Snapshot) -> None:
-    client = Langfuse(
-        public_key=settings.public_key,
-        secret_key=settings.secret_key,
-        base_url=settings.base_url,
-        timeout=settings.timeout_seconds,
-        flush_at=1,
-        flush_interval=0.25,
-        tracing_enabled=True,
-    )
-    if not client.auth_check():
-        raise RuntimeError("Langfuse auth_check returned false")
+def serialize_ingestion_event(event: Any) -> str:
+    model_dump_json = getattr(event, "model_dump_json", None)
+    if callable(model_dump_json):
+        return model_dump_json(exclude_none=True)
+    json_method = getattr(event, "json", None)
+    if callable(json_method):
+        try:
+            return json_method(exclude_none=True)
+        except TypeError:
+            return json_method()
+    return json.dumps(event, default=str, sort_keys=True)
 
-    span = client.start_span(
-        trace_context={"trace_id": snapshot.trace_id},
-        name="codex.session.export",
-        input={
-            "hook_event": snapshot.hook_event,
-            "transcript_sha256": snapshot.transcript_sha256,
-            "transcript_size": snapshot.transcript_size,
-        },
-        metadata=redact_object(
-            {
-                "cwd": str(snapshot.cwd),
-                "repo_root": snapshot.repo_root,
-                "hostname": socket.gethostname(),
-                "transcript_path": str(snapshot.transcript_path),
-                "transcript_sha256": snapshot.transcript_sha256,
-                "transcript_size": snapshot.transcript_size,
-                "raw_parts": len(snapshot.raw_chunks),
-                "redaction_mode": settings.redaction_mode,
-                "logical_project": settings.logical_project,
-                "override_path": str(settings.override_path) if settings.override_path else None,
-            },
-            settings.redaction_mode,
-        ),
-    )
 
+def build_ingestion_batches(events: list[Any], max_batch_bytes: int = MAX_INGESTION_BATCH_BYTES) -> list[list[Any]]:
+    batches: list[list[Any]] = []
+    current_batch: list[Any] = []
+    current_size = 0
+
+    for event in events:
+        event_size = len(serialize_ingestion_event(event).encode("utf-8"))
+        if current_batch and current_size + event_size > max_batch_bytes:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+
+        current_batch.append(event)
+        current_size += event_size
+
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+
+
+def supports_ingestion_api(client: Langfuse) -> bool:
+    if any(
+        symbol is None
+        for symbol in (
+            CreateEventBody,
+            CreateGenerationBody,
+            IngestionEvent_EventCreate,
+            IngestionEvent_GenerationCreate,
+            IngestionEvent_TraceCreate,
+            TraceBody,
+        )
+    ):
+        return False
+
+    ingestion = getattr(getattr(client, "api", None), "ingestion", None)
+    return callable(getattr(ingestion, "batch", None))
+
+
+def export_snapshot_with_ingestion(client: Langfuse, settings: Settings, snapshot: Snapshot) -> None:
     trace_tags = unique_strings(
         settings.tags
         + [f"tool:{tool_name}" for tool_name in snapshot.tool_names]
         + ([f"cwd:{snapshot.cwd.name}"] if snapshot.cwd.name else [])
+        + (["tls:insecure"] if settings.insecure_tls else [])
+    )
+    trace_timestamp = parse_timestamp(snapshot.started_at) or datetime.now(timezone.utc)
+    summary_timestamp = parse_timestamp(snapshot.last_event_at) or trace_timestamp
+    trace_metadata = redact_object(
+        {
+            "cwd": str(snapshot.cwd),
+            "repo_root": snapshot.repo_root,
+            "cli_version": snapshot.cli_version,
+            "source": snapshot.source,
+            "started_at": snapshot.started_at,
+            "last_event_at": snapshot.last_event_at,
+            "logical_project": settings.logical_project,
+            "transcript_path": str(snapshot.transcript_path),
+            "transcript_sha256": snapshot.transcript_sha256,
+            "hostname": socket.gethostname(),
+            "transcript_size": snapshot.transcript_size,
+            "raw_parts": len(snapshot.raw_chunks),
+            "redaction_mode": settings.redaction_mode,
+            "hook_event": snapshot.hook_event,
+            "model": snapshot.model,
+            "stop_hook_active": True,
+            "override_path": str(settings.override_path) if settings.override_path else None,
+            "insecure_tls": settings.insecure_tls,
+        },
+        settings.redaction_mode,
     )
 
-    span.update_trace(
-        name="codex.session",
-        session_id=snapshot.session_id,
-        user_id=settings.user_id,
-        metadata=redact_object(
-            {
-                "cwd": str(snapshot.cwd),
-                "repo_root": snapshot.repo_root,
-                "cli_version": snapshot.cli_version,
-                "source": snapshot.source,
-                "started_at": snapshot.started_at,
-                "last_event_at": snapshot.last_event_at,
-                "logical_project": settings.logical_project,
-                "transcript_path": str(snapshot.transcript_path),
-                "transcript_sha256": snapshot.transcript_sha256,
-                "hook_event": snapshot.hook_event,
-            },
-            settings.redaction_mode,
-        ),
-        tags=trace_tags,
-    )
+    events: list[Any] = [
+        IngestionEvent_TraceCreate(
+            id=stable_identifier(snapshot.trace_id, "trace-event"),
+            timestamp=trace_timestamp.isoformat(),
+            body=TraceBody(
+                id=snapshot.trace_id,
+                timestamp=trace_timestamp,
+                name="codex.session",
+                session_id=snapshot.session_id,
+                user_id=settings.user_id,
+                input={
+                    "hook_event": snapshot.hook_event,
+                    "transcript_sha256": snapshot.transcript_sha256,
+                    "transcript_size": snapshot.transcript_size,
+                },
+                metadata=trace_metadata,
+                tags=trace_tags,
+                environment="default",
+            ),
+        )
+    ]
 
-    span.create_event(
-        name="codex.session.summary",
-        output=snapshot.summary,
-        metadata={"content_type": "application/json", "snapshot_sha256": snapshot.transcript_sha256},
+    for index, turn in enumerate(snapshot.turns, start=1):
+        if not any([turn.input_text, turn.output_text, turn.raw_usage, turn.usage_details]):
+            continue
+
+        model = canonical_model_name(turn.model or snapshot.model) or turn.model or snapshot.model
+        turn_start = parse_timestamp(turn.started_at) or trace_timestamp
+        turn_end = parse_timestamp(turn.ended_at) or turn_start
+
+        generation_kwargs: dict[str, Any] = {
+            "id": stable_identifier(snapshot.trace_id, "generation-body", str(index), turn.turn_id or ""),
+            "trace_id": snapshot.trace_id,
+            "name": "codex.exec.turn",
+            "start_time": turn_start,
+            "end_time": turn_end,
+            "input": redact_object(turn.input_text, settings.redaction_mode),
+            "output": redact_object(turn.output_text, settings.redaction_mode),
+            "metadata": redact_object(
+                {
+                    "source": "codex.stop-hook",
+                    "turn_id": turn.turn_id,
+                    "started_at": turn.started_at,
+                    "ended_at": turn.ended_at,
+                    "raw_usage": turn.raw_usage,
+                },
+                settings.redaction_mode,
+            ),
+            "environment": "default",
+        }
+        if model:
+            generation_kwargs["model"] = model
+        if turn.usage_details:
+            generation_kwargs["usage"] = {
+                "promptTokens": int(turn.usage_details.get("prompt_tokens") or 0),
+                "completionTokens": int(turn.usage_details.get("completion_tokens") or 0),
+                "totalTokens": int(turn.usage_details.get("total_tokens") or 0),
+            }
+            generation_kwargs["usage_details"] = turn.usage_details
+        cost_details = infer_cost_details(model, turn.raw_usage)
+        if cost_details is not None:
+            generation_kwargs["cost_details"] = cost_details
+
+        events.append(
+            IngestionEvent_GenerationCreate(
+                id=stable_identifier(snapshot.trace_id, "generation-event", str(index), turn.turn_id or ""),
+                timestamp=turn_end.isoformat(),
+                body=CreateGenerationBody(**generation_kwargs),
+            )
+        )
+
+    events.append(
+        IngestionEvent_EventCreate(
+            id=stable_identifier(snapshot.trace_id, "summary-event"),
+            timestamp=summary_timestamp.isoformat(),
+            body=CreateEventBody(
+                id=stable_identifier(snapshot.trace_id, "summary-body"),
+                trace_id=snapshot.trace_id,
+                name="codex.session.summary",
+                start_time=summary_timestamp,
+                output=snapshot.summary,
+                metadata={
+                    "content_type": "application/json",
+                    "snapshot_sha256": snapshot.transcript_sha256,
+                },
+                environment="default",
+            ),
+        )
     )
 
     total_parts = len(snapshot.raw_chunks)
     for index, chunk in enumerate(snapshot.raw_chunks, start=1):
-        span.create_event(
-            name=f"codex.raw_transcript.part_{index}",
-            output=chunk,
+        events.append(
+            IngestionEvent_EventCreate(
+                id=stable_identifier(snapshot.trace_id, "raw-part-event", str(index)),
+                timestamp=summary_timestamp.isoformat(),
+                body=CreateEventBody(
+                    id=stable_identifier(snapshot.trace_id, "raw-part-body", str(index)),
+                    trace_id=snapshot.trace_id,
+                    name=f"codex.raw_transcript.part_{index}",
+                    start_time=summary_timestamp,
+                    output=chunk,
+                    metadata={
+                        "part_index": index,
+                        "part_total": total_parts,
+                        "content_type": "application/x-ndjson",
+                        "snapshot_sha256": snapshot.transcript_sha256,
+                    },
+                    environment="default",
+                ),
+            )
+        )
+
+    for batch in build_ingestion_batches(events):
+        response = client.api.ingestion.batch(
+            batch=batch,
             metadata={
-                "part_index": index,
-                "part_total": total_parts,
-                "content_type": "application/x-ndjson",
+                "sdk": "codex-stop-hook",
                 "snapshot_sha256": snapshot.transcript_sha256,
             },
         )
+        if getattr(response, "errors", None):
+            raise RuntimeError(f"Langfuse ingestion errors: {response.errors}")
 
-    span.update(
-        output={
-            "status": "exported",
-            "session_id": snapshot.session_id,
-            "snapshot_sha256": snapshot.transcript_sha256,
-            "raw_parts": total_parts,
-        }
+
+def export_snapshot_with_legacy_tracing(client: Langfuse, settings: Settings, snapshot: Snapshot) -> None:
+    trace_tags = unique_strings(
+        settings.tags
+        + [f"tool:{tool_name}" for tool_name in snapshot.tool_names]
+        + ([f"cwd:{snapshot.cwd.name}"] if snapshot.cwd.name else [])
+        + (["tls:insecure"] if settings.insecure_tls else [])
     )
-    span.end()
+
+    observation_metadata = redact_object(
+        {
+            "cwd": str(snapshot.cwd),
+            "repo_root": snapshot.repo_root,
+            "hostname": socket.gethostname(),
+            "transcript_path": str(snapshot.transcript_path),
+            "transcript_sha256": snapshot.transcript_sha256,
+            "transcript_size": snapshot.transcript_size,
+            "raw_parts": len(snapshot.raw_chunks),
+            "redaction_mode": settings.redaction_mode,
+            "logical_project": settings.logical_project,
+            "override_path": str(settings.override_path) if settings.override_path else None,
+            "model": snapshot.model,
+            "turns": len(snapshot.turns),
+            "insecure_tls": settings.insecure_tls,
+        },
+        settings.redaction_mode,
+    )
+    trace_metadata = redact_object(
+        {
+            "cwd": str(snapshot.cwd),
+            "repo_root": snapshot.repo_root,
+            "cli_version": snapshot.cli_version,
+            "source": snapshot.source,
+            "started_at": snapshot.started_at,
+            "last_event_at": snapshot.last_event_at,
+            "logical_project": settings.logical_project,
+            "transcript_path": str(snapshot.transcript_path),
+            "transcript_sha256": snapshot.transcript_sha256,
+            "hook_event": snapshot.hook_event,
+            "model": snapshot.model,
+            "turns": len(snapshot.turns),
+        },
+        settings.redaction_mode,
+    )
+    trace_context_manager = contextlib.nullcontext()
+    if not hasattr(client, "start_span") and propagate_attributes is not None:
+        trace_context_manager = propagate_attributes(
+            trace_name="codex.session",
+            session_id=snapshot.session_id,
+            user_id=settings.user_id,
+            metadata=trace_metadata,
+            tags=trace_tags,
+        )
+
+    with trace_context_manager:
+        if hasattr(client, "start_span"):
+            span = client.start_span(
+                trace_context={"trace_id": snapshot.trace_id},
+                name="codex.session.export",
+                input={
+                    "hook_event": snapshot.hook_event,
+                    "transcript_sha256": snapshot.transcript_sha256,
+                    "transcript_size": snapshot.transcript_size,
+                },
+                metadata=observation_metadata,
+            )
+            span.update_trace(
+                name="codex.session",
+                session_id=snapshot.session_id,
+                user_id=settings.user_id,
+                metadata=trace_metadata,
+                tags=trace_tags,
+            )
+        else:
+            span = client.start_observation(
+                trace_context={"trace_id": snapshot.trace_id},
+                name="codex.session.export",
+                as_type="span",
+                input={
+                    "hook_event": snapshot.hook_event,
+                    "transcript_sha256": snapshot.transcript_sha256,
+                    "transcript_size": snapshot.transcript_size,
+                },
+                metadata=observation_metadata,
+            )
+
+        span.create_event(
+            name="codex.session.summary",
+            output=snapshot.summary,
+            metadata={"content_type": "application/json", "snapshot_sha256": snapshot.transcript_sha256},
+        )
+
+        total_parts = len(snapshot.raw_chunks)
+        for index, chunk in enumerate(snapshot.raw_chunks, start=1):
+            span.create_event(
+                name=f"codex.raw_transcript.part_{index}",
+                output=chunk,
+                metadata={
+                    "part_index": index,
+                    "part_total": total_parts,
+                    "content_type": "application/x-ndjson",
+                    "snapshot_sha256": snapshot.transcript_sha256,
+                },
+            )
+
+        span.update(
+            output={
+                "status": "exported",
+                "session_id": snapshot.session_id,
+                "snapshot_sha256": snapshot.transcript_sha256,
+                "raw_parts": total_parts,
+            }
+        )
+        span.end()
     client.flush()
+
+
+def export_snapshot(settings: Settings, snapshot: Snapshot) -> None:
+    httpx_client: httpx.Client | None = None
+    client_kwargs: dict[str, Any] = {
+        "public_key": settings.public_key,
+        "secret_key": settings.secret_key,
+        "base_url": settings.base_url,
+        "timeout": settings.timeout_seconds,
+        "flush_at": 1,
+        "flush_interval": 0.25,
+        "tracing_enabled": True,
+    }
+    if settings.insecure_tls:
+        httpx_client = httpx.Client(verify=False, timeout=settings.timeout_seconds)
+        client_kwargs["httpx_client"] = httpx_client
+
+    client: Langfuse | None = None
+    try:
+        client = Langfuse(**client_kwargs)
+        if not client.auth_check():
+            raise RuntimeError("Langfuse auth_check returned false")
+        if supports_ingestion_api(client):
+            export_snapshot_with_ingestion(client, settings, snapshot)
+        else:
+            export_snapshot_with_legacy_tracing(client, settings, snapshot)
+    finally:
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.shutdown()
+        if httpx_client is not None:
+            httpx_client.close()
 
 
 def drain_spool() -> None:
     if not SPOOL_DIR.exists():
         return
 
+    deferred_targets: set[str] = set()
     for path in sorted(SPOOL_DIR.glob("*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -713,6 +1352,19 @@ def drain_spool() -> None:
         settings = resolve_settings(cwd)
         if not settings.enabled:
             continue
+        target_fingerprint = settings_target_fingerprint(settings)
+        if target_fingerprint in deferred_targets:
+            continue
+
+        deferred_state = should_defer_exports(settings)
+        if deferred_state is not None:
+            deferred_targets.add(target_fingerprint)
+            log(
+                "spool-deferred "
+                f"path={path} retry_at={deferred_state.retry_at} "
+                f"failures={deferred_state.consecutive_failures}"
+            )
+            continue
 
         try:
             snapshot = build_snapshot(transcript_path, settings, str(payload.get("hook_event") or "Stop"))
@@ -720,11 +1372,27 @@ def drain_spool() -> None:
             if is_exported(snapshot_key):
                 path.unlink(missing_ok=True)
                 continue
+        except Exception as error:  # noqa: BLE001
+            log(f"spool-build-failed path={path} error={error}")
+            continue
+
+        try:
             export_snapshot(settings, snapshot)
+            clear_health_state(settings)
             mark_exported(snapshot_key, settings, snapshot)
             path.unlink(missing_ok=True)
             log(f"spool-exported session_id={snapshot.session_id} snapshot={snapshot_key}")
         except Exception as error:  # noqa: BLE001
+            write_spool(snapshot_key, settings, snapshot, str(error))
+            if is_retryable_export_error(error):
+                state = mark_server_unhealthy(settings, error)
+                deferred_targets.add(target_fingerprint)
+                log(
+                    "spool-buffered "
+                    f"path={path} retry_at={state.retry_at} "
+                    f"failures={state.consecutive_failures} error={error}"
+                )
+                continue
             log(f"spool-export-failed path={path} error={error}")
 
 
@@ -777,8 +1445,19 @@ def main() -> int:
             log(f"snapshot-skip-duplicate session_id={snapshot.session_id} snapshot={snapshot_key}")
             return 0
 
+        deferred_state = should_defer_exports(settings)
+        if deferred_state is not None:
+            write_spool(snapshot_key, settings, snapshot, f"Deferred until {deferred_state.retry_at}")
+            log(
+                "snapshot-buffered "
+                f"session_id={snapshot.session_id} snapshot={snapshot_key} path={snapshot.transcript_path} "
+                f"retry_at={deferred_state.retry_at} failures={deferred_state.consecutive_failures}"
+            )
+            return 0
+
         try:
             export_snapshot(settings, snapshot)
+            clear_health_state(settings)
             mark_exported(snapshot_key, settings, snapshot)
             spool_path(snapshot_key).unlink(missing_ok=True)
             log(
@@ -787,6 +1466,14 @@ def main() -> int:
             )
         except Exception as error:  # noqa: BLE001
             write_spool(snapshot_key, settings, snapshot, str(error))
+            if is_retryable_export_error(error):
+                state = mark_server_unhealthy(settings, error)
+                log(
+                    "snapshot-buffered "
+                    f"session_id={snapshot.session_id} snapshot={snapshot_key} path={snapshot.transcript_path} "
+                    f"retry_at={state.retry_at} failures={state.consecutive_failures} error={error}"
+                )
+                return 0
             log(
                 "snapshot-spooled "
                 f"session_id={snapshot.session_id} snapshot={snapshot_key} path={snapshot.transcript_path} error={error}"
