@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enforce Offline Gates"
+  short_description: "Install and enforce offline quality gates"
+  default_prompt: "Use $enforce-offline-gates to detect this repo stack and enforce deterministic offline gates with hooks."
