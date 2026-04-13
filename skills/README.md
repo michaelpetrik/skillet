@@ -69,7 +69,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
 ## Coding
 
 
-- **[Repo Quality Guardrails](./coding/repo-quality-guardrails/SKILL.md)**: Use when you need to add, audit, or upgrade repository-local quality and security guardrails in a fresh or existing repo. This skill extracts local AGENTS and rules policy, separates policy from executable enforcement, and proposes or implements GitNexus-first code intelligence and impact analysis, pinned toolchain manifests, local hook wiring, local quality gates, security review entrypoints, diff-aware secret scanning, Docker and runtime checks, parseable handoff evidence with explicit N/A reporting, and Claude Code documentation naming conventions enforced via `claudecode-conventions`.
+- **[Repo Quality Guardrails](./coding/repo-quality-guardrails/SKILL.md)**: Use when you need to add, audit, or upgrade repository-local quality, documentation, and security guardrails in a fresh or existing repo. This skill extracts local AGENTS and rules policy, separates policy from executable enforcement, and proposes or implements GitNexus-first code intelligence and impact analysis, pinned toolchain manifests, offline documentation gates, local hook wiring, local quality gates, security review entrypoints, diff-aware secret scanning, Docker and runtime checks, parseable handoff evidence with explicit N/A reporting, and Claude Code documentation naming conventions enforced via `claudecode-conventions`.
 
   **Install using skills.sh:**
 
@@ -81,18 +81,4 @@ This directory contains specialized skills that extend the capabilities of AI ag
   With `bun`:
   ```bash
   bunx skills add michaelpetrik/skillet --skill repo-quality-guardrails
-  ```
-
-- **[Enforce Offline Gates](./coding/enforce-offline-gates/SKILL.md)**: Enforce deterministic offline quality/security/performance/architecture gates in any repository by detecting current languages/frameworks/package managers, selecting compatible static-analysis tooling, installing and wiring tools, and enforcing execution via git hooks and CI entrypoints. Use when the user asks to set up or harden guardrails, create offline gates, enforce pre-commit/pre-push checks, standardize quality protocol across mixed stacks, or bootstrap repeatable gate workflows for Next.js, frontend, backend, monorepos, or polyglot projects.
-
-  **Install using skills.sh:**
-
-  With `npm`:
-  ```bash
-  npx skills add michaelpetrik/skillet --skill enforce-offline-gates
-  ```
-
-  With `bun`:
-  ```bash
-  bunx skills add michaelpetrik/skillet --skill enforce-offline-gates
   ```

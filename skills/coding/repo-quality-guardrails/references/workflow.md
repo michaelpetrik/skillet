@@ -19,6 +19,8 @@ Record each relevant control with:
 - `status`
 - `reason`
 
+For code-heavy repos, include documentation controls in the same inventory. Record the chosen doc browser, static generator, visualization tools, renderers, output paths, and whether the local quality gate actually verifies them offline.
+
 Treat legacy, archived, or migration-only trees as out of scope unless the task explicitly targets them.
 
 ## 2. Separate policy from executable enforcement
@@ -39,6 +41,8 @@ Do not count network-dependent scanners as local enforcement unless the repo als
 
 Do not count manual review alone as `enforced`. Manual review can be required output, but it remains human evidence, not executable enforcement.
 
+Do not count generated docs as `enforced` unless the repo also pins the documentation toolchain and renderers and exposes one repo-owned local entrypoint that reproduces them offline.
+
 ## 3. Minimum control families
 
 Every repo should either implement or explicitly classify these controls:
@@ -50,6 +54,7 @@ Every repo should either implement or explicitly classify these controls:
 | Pinned toolchain manifest | Version-controlled source of truth for runtime, package manager, formatter, linter, test, and security tools. | Never. If missing, this is `blocker` or `policy-only`. |
 | Local hook wiring | Repo-owned hook entrypoint plus reproducible installer or config. | Only when the repo intentionally has no pre-commit-style local gate. |
 | Local quality gate | One local command or thin orchestrator that runs the pinned format, lint, test, build, and dependency-hygiene checks. | Never for active stacks. Missing means `blocker` or `partial`. |
+| Local documentation gate | One local command or thin orchestrator that runs pinned documentation generation and visualization render steps offline, and produces browsable artifacts such as Markdown, HTML, or SVG. | Only when the repo is not a meaningful code surface. |
 | Local security review entrypoint | One local command or thin orchestrator that runs repo-owned static checks where applicable, secret scanning, and emits manual review obligations separately from executable results. | Never for active repos. Missing means `blocker` or `policy-only`. |
 | Dependency vulnerability audit | A repo-owned advisory check with honest status. Local mirror or cache-backed paths can become `enforced`; live-network-only paths stay `partial` or `blocker`. | Only when the repo truly has no third-party dependencies. |
 | Secret scanning | Diff-aware scan on changed content and secret-like files. | Never. Missing means `blocker` or `policy-only`. |
@@ -57,6 +62,8 @@ Every repo should either implement or explicitly classify these controls:
 | Parseable handoff artifact | Machine-readable evidence for split test and implementation authorship when the repo requires it. | The repo does not require split authorship. |
 
 Prefer small named scripts over one opaque monolith. A single top-level gate is fine if it delegates to smaller checks such as `check_agent_handoff`, `check_no_secrets`, or `check_docker_builds`.
+
+Prefer a dedicated docs gate such as `scripts/ci/*docs*_gate.*` when the docs toolchain is non-trivial. The top-level quality gate can call that docs gate, but the docs logic should stay independently runnable.
 
 For source-code repositories, GitNexus should be treated as a top-tier control alongside gates and manifests, not as optional documentation garnish. Prefer the official GitNexus skill set and generated context over hand-maintained local clones of the same workflow.
 
@@ -134,8 +141,12 @@ When making or proposing changes:
 - preserve repo-local naming and structure where possible;
 - install and configure GitNexus when the repo lacks it and no equivalent exists, using the official `gitnexus-cli` bootstrap and official GitNexus skills for ongoing usage;
 - keep GitNexus-specific AGENTS changes minimal; prefer the generated GitNexus context block plus links or references to the official GitNexus skills;
+- choose established, offline-capable documentation and visualization tools for the active language instead of ad hoc AI-only generators, pin them in repo-owned manifests, and wire them into local gates;
+- generate at least one human-readable doc artifact and one rendered architecture artifact for source-code repos unless the active stack genuinely has no credible local tooling;
 - use `$claudecode-conventions` to normalize `CLAUDE.md` handling: verify `AGENTS.md` exists, merge any actionable rules, then leave `CLAUDE.md` only as a symlink to `AGENTS.md` or a file whose exact content is `@AGENTS.md`;
 - keep gates runnable offline after initial bootstrap;
+- keep documentation gates runnable offline after initial bootstrap, including renderers like `plantuml` or Graphviz when selected tooling depends on them;
 - reuse the same entrypoints locally and in CI;
+- expose generated docs from a stable README section or docs index when the repo commits generated artifacts, so developers can see the result without rerunning the toolchain;
 - split executable checks from network-dependent steps and manual obligations in the final matrix;
 - state residual manual review boundaries for auth, input validation, injection sinks, secrets handling, templates, shell calls, and outbound requests.
