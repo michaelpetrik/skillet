@@ -1,0 +1,4 @@
+interface:
+  display_name: "Google AI Studio Export Standardizer"
+  short_description: "Normalize AI Studio Vite exports"
+  default_prompt: "Use $google-ai-studio-export-standardizer to normalize this Google AI Studio Vite export and keep a clean rollback path."
