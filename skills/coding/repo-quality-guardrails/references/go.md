@@ -22,7 +22,8 @@ If the repo has no local guardrails yet, a good baseline is:
 
 - GitNexus installation and `npx gitnexus analyze` bootstrap for non-trivial repos, plus local rules that require the official GitNexus impact-analysis workflow before editing shared symbols and `detect_changes` before commit;
 - a pinned manifest plus `scripts/ci/install_dev_tools.sh`;
-- `.githooks/pre-commit` with an installer, or `.pre-commit-config.yaml` with a local repo-owned entrypoint;
+- `.githooks/pre-commit` with an installer or checked-in `core.hooksPath` activation step, plus a diff-aware `scripts/ci/secret_scan.sh` that runs before the broader quality gate;
+- `.pre-commit-config.yaml` only as a complement to the repo-owned hook path, not as the sole proof that local hooks are enforced;
 - `scripts/ci/run_quality_gates.sh` as the thin orchestrator;
 - `scripts/ci/go_docs_gate.sh` or a repo-local equivalent for offline documentation generation and rendering;
 - `scripts/devel/pkgsite.sh` or a repo-local equivalent to browse local Go docs without network access;
@@ -70,7 +71,7 @@ Prefer the repo-pinned equivalent of:
 
 - targeted `gosec` on changed packages or affected modules;
 - `govulncheck ./...` or the repo's equivalent vulnerability check, with honest status if advisory data is network-backed;
-- diff-aware secret scanning;
+- diff-aware secret scanning over staged content, including blocked secret-like files such as `.env`, `.pem`, `.key`, and `.p12`, wired into the local pre-commit path before broader gates;
 - Docker and runtime checks when the repo ships containers;
 - manual review of auth, input validation, injection boundaries, templates, shell calls, and outbound requests.
 
@@ -80,6 +81,8 @@ Prefer the repo-pinned equivalent of:
 
 - If the repo requires dependency vulnerability checks but only a networked path exists, mark that control `partial` or `blocker`, not `enforced`.
 - If a non-trivial Go repo has no GitNexus or equivalent graph-aware impact-analysis workflow, treat that as `blocker` or `partial` until installed and documented.
+- If a Go repo has only `.pre-commit-config.yaml` but no repo-owned hook entrypoint plus activation path, hook wiring stays `partial` or `blocker`, not `enforced`.
+- If a Go repo lacks a diff-aware staged secret scan in the local hook path before the broader quality gate, secret scanning stays `blocker` or `policy-only`.
 - If a Go repo has no pinned offline docs gate, or the docs stack is not selected from established Go tooling, treat documentation enforcement as `blocker` or `partial`, not optional.
 - If docs generation depends on unpinned `plantuml`, Graphviz, or other renderers, documentation enforcement is `partial` or `blocker`.
 - If `go test -race` is unsupported on the repo's target platform, mark it `N/A` with the platform constraint.

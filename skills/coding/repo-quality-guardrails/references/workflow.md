@@ -30,7 +30,7 @@ Use these statuses consistently:
 | Status | Meaning |
 | --- | --- |
 | `enforced` | The repo has a versioned, repo-owned executable path that developers can run locally, and CI uses the same path or a thin wrapper around it. |
-| `partial` | Some executable logic exists, but it is not fully local, not pinned, not wired into hooks, or not equivalent to CI. |
+| `partial` | Some executable logic exists, but it is not fully local, not pinned, not wired into an active hook path, or not equivalent to CI. |
 | `policy-only` | The rule exists in prose, but there is no repo-owned executable check. |
 | `blocker` | The repo says the control is required, but the needed manifest, tool, entrypoint, or evidence is missing. |
 | `N/A` | The control does not apply to this repo or task. State why. |
@@ -52,16 +52,18 @@ Every repo should either implement or explicitly classify these controls:
 | GitNexus or equivalent code intelligence | Repo-owned graph or impact-analysis workflow for exploration, blast-radius checks, and change-scope verification. | The repo is not a meaningful source-code surface, or the task does not touch code. |
 | Claude Code documentation naming | Use `$claudecode-conventions`; `AGENTS.md` is canonical and `CLAUDE.md` must be absent, a symlink to `AGENTS.md`, or a file whose exact content is `@AGENTS.md`. | The repo does not interact with Claude Code style agent docs at all. |
 | Pinned toolchain manifest | Version-controlled source of truth for runtime, package manager, formatter, linter, test, and security tools. | Never. If missing, this is `blocker` or `policy-only`. |
-| Local hook wiring | Repo-owned hook entrypoint plus reproducible installer or config. | Only when the repo intentionally has no pre-commit-style local gate. |
+| Local hook wiring | Repo-owned hook entrypoint plus reproducible installer or config that actually activates the hook path in a clone. | Only when the repo intentionally has no pre-commit-style local gate. |
 | Local quality gate | One local command or thin orchestrator that runs the pinned format, lint, test, build, and dependency-hygiene checks. | Never for active stacks. Missing means `blocker` or `partial`. |
 | Local documentation gate | One local command or thin orchestrator that runs pinned documentation generation and visualization render steps offline, and produces browsable artifacts such as Markdown, HTML, or SVG. | Only when the repo is not a meaningful code surface. |
 | Local security review entrypoint | One local command or thin orchestrator that runs repo-owned static checks where applicable, secret scanning, and emits manual review obligations separately from executable results. | Never for active repos. Missing means `blocker` or `policy-only`. |
 | Dependency vulnerability audit | A repo-owned advisory check with honest status. Local mirror or cache-backed paths can become `enforced`; live-network-only paths stay `partial` or `blocker`. | Only when the repo truly has no third-party dependencies. |
-| Secret scanning | Diff-aware scan on changed content and secret-like files. | Never. Missing means `blocker` or `policy-only`. |
+| Secret scanning | Diff-aware scan on staged or changed content plus blocked secret-like file types in the local hook path before broader gates. | Never. Missing means `blocker` or `policy-only`. |
 | Docker/runtime checks | Static hardening plus build and smoke verification for shipped containers or runtime packages. | No production container or runtime package exists. |
 | Parseable handoff artifact | Machine-readable evidence for split test and implementation authorship when the repo requires it. | The repo does not require split authorship. |
 
 Prefer small named scripts over one opaque monolith. A single top-level gate is fine if it delegates to smaller checks such as `check_agent_handoff`, `check_no_secrets`, or `check_docker_builds`.
+
+For secret scanning, do not count a scanner as `enforced` unless it is wired into the repo-owned local pre-commit path before the broader quality gate. A standalone script that developers are merely told to run is only `partial`.
 
 Prefer a dedicated docs gate such as `scripts/ci/*docs*_gate.*` when the docs toolchain is non-trivial. The top-level quality gate can call that docs gate, but the docs logic should stay independently runnable.
 
@@ -130,6 +132,7 @@ Bad `N/A` examples:
 
 - tool not installed locally;
 - hook wiring not yet created;
+- hook path exists only in config but is not activatable in a fresh clone;
 - scanner needs network but the repo never mirrored its advisory data.
 
 Those are `blocker` or `partial`, not `N/A`.
@@ -139,6 +142,8 @@ Those are `blocker` or `partial`, not `N/A`.
 When making or proposing changes:
 
 - preserve repo-local naming and structure where possible;
+- prefer `.githooks/pre-commit` or an equivalent repo-owned hook entrypoint plus a checked-in installer/config step over sample hooks or undocumented local setup;
+- require secret scanning to run before the broader quality gate in the local hook path, not only as a CI step or optional script;
 - install and configure GitNexus when the repo lacks it and no equivalent exists, using the official `gitnexus-cli` bootstrap and official GitNexus skills for ongoing usage;
 - keep GitNexus-specific AGENTS changes minimal; prefer the generated GitNexus context block plus links or references to the official GitNexus skills;
 - choose established, offline-capable documentation and visualization tools for the active language instead of ad hoc AI-only generators, pin them in repo-owned manifests, and wire them into local gates;

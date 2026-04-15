@@ -4,6 +4,13 @@ All notable changes to this skill are documented in this file.
 
 The format is based on Keep a Changelog and this project uses Semantic Versioning.
 
+## [1.2.0] - 2026-04-15
+### Changed
+- Synchronized the published skill bundle with the source skill.
+- Updated `CHANGELOG.md`.
+- Updated `SKILL.md`.
+- Updated `references/go.md`.
+- Updated `references/workflow.md`.
 ## [1.1.0] - 2026-04-13
 ### Changed
 - Synchronized the published skill bundle with the source skill.

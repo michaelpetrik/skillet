@@ -83,17 +83,3 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill repo-quality-guardrails
   ```
-
-- **[Google AI Studio Export Standardizer](./coding/google-ai-studio-export-standardizer/SKILL.md)**: Standardize Google AI Studio exported React/Vite apps that use non-standard client env injection, mismatched aliases, or AI Studio-specific config hacks. Use when Codex needs to normalize an exported AI Studio app to idiomatic Vite patterns, keep the change reversible, update docs/examples, and add regression checks that protect both standardization and rollback.
-
-  **Install using skills.sh:**
-
-  With `npm`:
-  ```bash
-  npx skills add michaelpetrik/skillet --skill google-ai-studio-export-standardizer
-  ```
-
-  With `bun`:
-  ```bash
-  bunx skills add michaelpetrik/skillet --skill google-ai-studio-export-standardizer
-  ```
