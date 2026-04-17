@@ -70,7 +70,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
 
 
 
-- **[Repo Quality Guardrails](./coding/repo-quality-guardrails/SKILL.md)**: Use when you need to add, audit, or upgrade repository-local quality, documentation, and security guardrails in a fresh or existing repo. This skill extracts local AGENTS and rules policy, separates policy from executable enforcement, and proposes or implements GitNexus-first code intelligence and impact analysis, pinned toolchain manifests, offline documentation gates, local hook wiring, local quality gates, security review entrypoints, diff-aware secret scanning, Docker and runtime checks, parseable handoff evidence with explicit N/A reporting, and Claude Code documentation naming conventions enforced via `claudecode-conventions`.
+- **[Repo Quality Guardrails](./coding/repo-quality-guardrails/SKILL.md)**: Use when you need to audit, add, or upgrade repository-local quality, documentation, and security guardrails without overreaching. Classify the task as audit, proposal, or implementation first; separate policy from executable enforcement; prefer the smallest repo-owned change set that closes real control gaps; and verify every claimed control with local evidence. Covers GitNexus or equivalent code intelligence, pinned manifests, activatable hook wiring, diff-aware secret scanning, offline documentation gates, Docker/runtime checks, handoff evidence, and Claude Code naming via `claudecode-conventions`.
 
   **Install using skills.sh:**
 

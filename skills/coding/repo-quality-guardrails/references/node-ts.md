@@ -14,7 +14,7 @@ Do not treat global `npm`, `pnpm`, or `yarn` state as policy.
 
 ## Fresh-repo default
 
-If the repo has no local guardrails yet, a good baseline is:
+If the repo has no local guardrails yet, a good baseline is the following. Use it as an implementation baseline, not as an automatic edit list during audit-only work.
 
 - GitNexus installation and indexing for non-trivial Node.js or TypeScript repos, plus local rules for the official GitNexus impact-analysis flow before editing widely used modules or public APIs;
 - a pinned Node and package-manager manifest plus `scripts/ci/install_dev_tools.sh`;

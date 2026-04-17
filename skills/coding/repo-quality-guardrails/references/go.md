@@ -18,7 +18,7 @@ Good homes for the auxiliary manifest:
 
 ## Fresh-repo default
 
-If the repo has no local guardrails yet, a good baseline is:
+If the repo has no local guardrails yet, a good baseline is the following. Use it as an implementation baseline, not as an automatic edit list during audit-only work.
 
 - GitNexus installation and `npx gitnexus analyze` bootstrap for non-trivial repos, plus local rules that require the official GitNexus impact-analysis workflow before editing shared symbols and `detect_changes` before commit;
 - a pinned manifest plus `scripts/ci/install_dev_tools.sh`;

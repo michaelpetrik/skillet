@@ -1,5 +1,22 @@
 # Core Workflow
 
+## 0. Classify the task before changing anything
+
+Start by naming the mode:
+
+- `audit`: inventory and classify controls, but do not install new tooling just to erase `blocker` rows.
+- `proposal`: design the smallest credible change set and record tradeoffs.
+- `implementation`: change only the controls required by the task or already-proven repo policy.
+
+State the assumptions that materially affect the recommendation:
+
+- active stack and package workflow;
+- whether the repo is code-heavy enough for GitNexus or equivalent;
+- whether Claude Code style docs apply;
+- whether docs, Docker/runtime, or split-authorship controls are actually in scope.
+
+If those assumptions change the recommendation, do not pick silently.
+
 ## 1. Extract local rules before proposing fixes
 
 Read the repo in this order:
@@ -18,6 +35,8 @@ Record each relevant control with:
 - `enforcement_source`
 - `status`
 - `reason`
+
+Keep present-state evidence separate from desired end state. A missing control is a finding first, not an automatic edit.
 
 For code-heavy repos, include documentation controls in the same inventory. Record the chosen doc browser, static generator, visualization tools, renderers, output paths, and whether the local quality gate actually verifies them offline.
 
@@ -44,6 +63,8 @@ Do not count manual review alone as `enforced`. Manual review can be required ou
 Do not count generated docs as `enforced` unless the repo also pins the documentation toolchain and renderers and exposes one repo-owned local entrypoint that reproduces them offline.
 
 ## 3. Minimum control families
+
+These are classification targets, not an instruction to install every missing control during an audit. During audit or proposal work, report the gaps honestly and separate required-now controls from backlog work.
 
 Every repo should either implement or explicitly classify these controls:
 
@@ -142,11 +163,13 @@ Those are `blocker` or `partial`, not `N/A`.
 When making or proposing changes:
 
 - preserve repo-local naming and structure where possible;
+- reuse existing task runners, hook managers, and doc toolchains before adding wrappers or parallel systems;
 - prefer `.githooks/pre-commit` or an equivalent repo-owned hook entrypoint plus a checked-in installer/config step over sample hooks or undocumented local setup;
 - require secret scanning to run before the broader quality gate in the local hook path, not only as a CI step or optional script;
-- install and configure GitNexus when the repo lacks it and no equivalent exists, using the official `gitnexus-cli` bootstrap and official GitNexus skills for ongoing usage;
+- if the repo lacks GitNexus and no equivalent exists, classify that gap honestly; install and configure it only when the task scope is to close the missing-control gap, using the official `gitnexus-cli` bootstrap and official GitNexus skills for ongoing usage;
 - keep GitNexus-specific AGENTS changes minimal; prefer the generated GitNexus context block plus links or references to the official GitNexus skills;
 - choose established, offline-capable documentation and visualization tools for the active language instead of ad hoc AI-only generators, pin them in repo-owned manifests, and wire them into local gates;
+- do not add a second documentation framework or graph toolchain when the repo already has a pinned local stack that closes the requirement;
 - generate at least one human-readable doc artifact and one rendered architecture artifact for source-code repos unless the active stack genuinely has no credible local tooling;
 - use `$claudecode-conventions` to normalize `CLAUDE.md` handling: verify `AGENTS.md` exists, merge any actionable rules, then leave `CLAUDE.md` only as a symlink to `AGENTS.md` or a file whose exact content is `@AGENTS.md`;
 - keep gates runnable offline after initial bootstrap;
@@ -154,4 +177,6 @@ When making or proposing changes:
 - reuse the same entrypoints locally and in CI;
 - expose generated docs from a stable README section or docs index when the repo commits generated artifacts, so developers can see the result without rerunning the toolchain;
 - split executable checks from network-dependent steps and manual obligations in the final matrix;
+- split required-now changes from backlog or nice-to-have recommendations so the implementation stays surgical;
+- define exact verification commands or postconditions for each changed control;
 - state residual manual review boundaries for auth, input validation, injection sinks, secrets handling, templates, shell calls, and outbound requests.

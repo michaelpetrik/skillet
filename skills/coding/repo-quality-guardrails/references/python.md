@@ -15,7 +15,7 @@ Avoid ambient virtualenv state as policy. The repo needs a checked-in source of 
 
 ## Fresh-repo default
 
-If the repo has no local guardrails yet, a good baseline is:
+If the repo has no local guardrails yet, a good baseline is the following. Use it as an implementation baseline, not as an automatic edit list during audit-only work.
 
 - GitNexus installation and indexing for non-trivial Python repos, plus local rules that require the official GitNexus exploration and impact-analysis flows before risky edits;
 - a pinned interpreter and tool manifest plus `scripts/ci/install_dev_tools.sh`;

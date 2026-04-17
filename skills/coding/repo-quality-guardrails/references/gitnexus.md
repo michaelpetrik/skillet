@@ -21,7 +21,7 @@ This skill should steer the repo toward using those official GitNexus skills and
 ## Default Rule
 
 - If the repo already uses GitNexus, enforce it.
-- If the repo is a meaningful source-code repo and has no equivalent code-graph or impact-analysis system, install and configure GitNexus.
+- If the repo is a meaningful source-code repo and has no equivalent code-graph or impact-analysis system, classify that gap honestly. Install and configure GitNexus only when the task scope is to close the missing-control gap, not during audit by reflex.
 - If the repo is tiny, throwaway, or not actually code-centric, GitNexus can be `N/A`, but say why explicitly.
 
 Equivalent tools only count if they provide materially similar local capabilities for:
@@ -63,6 +63,8 @@ Recommended setup sequence:
 2. Verify the index via `npx gitnexus status` or `gitnexus://repo/{name}/context`.
 3. Reuse the generated GitNexus block in `AGENTS.md` if GitNexus writes one. Do not manually expand it unless the repo has a real local deviation to document.
 4. Point repo workflow guidance at the official GitNexus skills instead of embedding long custom instructions in local docs.
+
+Do not replace an existing equivalent local workflow just to standardize names. If the repo already has a materially similar graph-aware system, document the equivalence and any real gaps instead of forcing a migration.
 
 ## Minimum enforcement expectations
 

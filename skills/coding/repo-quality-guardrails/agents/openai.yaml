@@ -1,4 +1,4 @@
 interface:
   display_name: "Repo Quality Guardrails"
-  short_description: "Audit or add honest repo-local guardrails"
-  default_prompt: "Use $repo-quality-guardrails to add or audit repo-local quality, documentation, and security guardrails, separating policy from real enforcement and pinning established offline doc toolchains for the active language."
+  short_description: "Audit or implement minimal honest repo guardrails"
+  default_prompt: "Use $repo-quality-guardrails to classify the task as audit, proposal, or implementation; separate policy from real enforcement; prefer the smallest repo-owned guardrail change set; and verify GitNexus, hook wiring, secret scanning, docs gates, manifests, and Claude Code naming with local evidence."

@@ -15,7 +15,7 @@ Do not treat global tools, editor plugins, or CI-only images as local enforcemen
 
 ## Fresh-repo default
 
-If the repo has no local guardrails yet, a good baseline is:
+If the repo has no local guardrails yet, a good baseline is the following. Use it as an implementation baseline, not as an automatic edit list during audit-only work.
 
 - GitNexus installation and initial indexing for non-trivial code repos, plus repo-local instructions that point to the official GitNexus skills for refresh and required use;
 - `$claudecode-conventions` enforcement for `AGENTS.md` or `CLAUDE.md` naming if the repo participates in Claude Code style agent docs;
