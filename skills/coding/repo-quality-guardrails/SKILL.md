@@ -2,7 +2,7 @@
 name: repo-quality-guardrails
 description: Use when you need to audit, add, or upgrade repository-local quality, documentation, and security guardrails without overreaching. Classify the task as audit, proposal, or implementation first; separate policy from executable enforcement; prefer the smallest repo-owned change set that closes real control gaps; and verify every claimed control with local evidence. Covers GitNexus or equivalent code intelligence, pinned manifests, activatable hook wiring, diff-aware secret scanning, offline documentation gates, Docker/runtime checks, handoff evidence, and Claude Code naming via `claudecode-conventions`.
 category: Coding
-version: 1.3.0
+version: 1.4.0
 ---
 
 # Repo Quality Guardrails
@@ -19,6 +19,7 @@ Use this skill when a repo has quality or security policy in prose, but needs re
 3. Simplicity first. Prefer the smallest repo-owned mechanism that satisfies the rule. Reuse existing hook managers, task runners, manifests, doc generators, and CI entrypoints before adding new wrappers, parallel frameworks, or redundant doc systems.
 4. Make surgical changes. Every added file, script, or rule should trace to a discovered control gap. Do not rewrite adjacent policy, rename stable paths, or swap ecosystems unless the current path cannot satisfy the requirement.
 5. Define success criteria before editing. For each control you change, name the exact local evidence that would prove it: command, hook path, manifest, generated artifact, or rendered output. For multi-step work, use a short plan of `step -> verify`.
+6. Use change-tiered gate planning before adding more checks. Prefer a repo-owned tier matrix that keeps commit-time checks fast and shifts broad verification to push, merge, or release gates where appropriate.
 
 ## Workflow
 
@@ -38,6 +39,24 @@ Use this skill when a repo has quality or security policy in prose, but needs re
 14. If a control depends on network access, CI-only infrastructure, SaaS, or manual judgment, record that boundary explicitly and do not mark it `enforced`.
 15. For implementation tasks, finish with exact verification evidence for each changed control. If verification is blocked, say what blocked it instead of silently claiming success.
 
+## Change-Tiered Gate Planning
+
+When a repo is slowed by overly broad commit gates, add hierarchy before adding tooling:
+
+1. Classify the change into repo-defined tiers such as `C0-C6` or an equivalent local naming scheme. Avoid names that collide with existing release or functional levels.
+2. Treat the repo's invariant baseline as inherited by every tier: active hook path, diff-aware secret scan, required structural checks, and any existing mandatory local gate.
+3. Define higher tiers only as additional evidence, not shortcuts around the baseline. Typical escalation points are test-only handoff, narrow implementation, persistence/API/queue boundaries, production runtime, and cross-cutting architecture or release-critical changes.
+4. Keep exact commands repo-local. The skill should recommend a matrix shape and evidence categories; the repo owns command names, hook modes, and CI checks.
+5. Add helper scripts only after repeated classification errors. Prefer one policy document plus contract tests before introducing a second executable planner that can drift from hooks and CI.
+
+Use model-routing as an advisory cost control, not an enforceable gate:
+
+- low-cost extraction models for rules reading, log summaries, handoff drafts, and mechanical checklists;
+- medium coding models for focused tests, narrow implementation, ordinary debugging, and graph-query planning;
+- high-reasoning models for architecture, security, release readiness, dependency changes, merge decisions, and high-risk impact results.
+
+Do not hard-code volatile provider model names into generic guardrail policy. If examples help a specific repo, keep them advisory and make escalation triggers risk-based.
+
 ## Read Next
 
 - Read [references/workflow.md](references/workflow.md) for the core inventory, control families, handoff schema, and `N/A` rules.
@@ -56,6 +75,8 @@ Always produce:
 - the sourced list of discovered local rules and enforcement artifacts;
 - a policy versus enforcement matrix with explicit `blocker` and `N/A` rows;
 - the minimal change set required now versus optional backlog work, so audits do not turn into accidental platform rewrites;
+- the repo's change-tier classification, if one exists or is proposed, including which checks are invariant for every tier and which checks are additional evidence for higher-risk tiers;
+- the model-routing recommendation when token or review cost matters, expressed as capability bands unless the repo explicitly owns exact model names;
 - the GitNexus install or enforcement status, the `claudecode-conventions` status for `AGENTS.md` or `CLAUDE.md`, plus the pinned manifest, hook wiring, quality gate, documentation gate, secret-scan, Docker/runtime, and handoff changes you made or propose;
 - whether local hook wiring is merely declared or actually activatable in a clone, including the exact installer/config path and whether secret scanning runs before broader quality gates;
 - the established documentation stack selected for the active language, including which generator, viewer, visualizers, and renderers are pinned locally and whether README or docs indexes expose the generated artifacts offline;

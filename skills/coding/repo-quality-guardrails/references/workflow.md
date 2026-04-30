@@ -82,6 +82,27 @@ Every repo should either implement or explicitly classify these controls:
 | Docker/runtime checks | Static hardening plus build and smoke verification for shipped containers or runtime packages. | No production container or runtime package exists. |
 | Parseable handoff artifact | Machine-readable evidence for split test and implementation authorship when the repo requires it. | The repo does not require split authorship. |
 
+## 3a. Change-tiered gate planning
+
+When local commits are slow because every change pays the full verification cost, recommend a repo-owned change-tier matrix before proposing new automation. The goal is to make commits cheap while keeping push, merge, and release gates strict.
+
+Good tier models:
+
+- use a neutral prefix such as `C0-C6` unless the repo already owns another naming scheme;
+- state an invariant baseline inherited by every tier, such as hook path, diff check, staged secret scan, structural gate, or other mandatory local checks;
+- list only additional evidence per tier, for example docs sanity, script syntax checks, focused tests, split test/implementation handoff, GitNexus impact, contract/integration tests, race tests, security review, Docker smoke, or full local/CI gates;
+- define promotion triggers: uncertainty, changed executable policy, shared code, persistence, queues, auth, external I/O, runtime packaging, dependency changes, architecture boundaries, or failed gates;
+- keep broad verification at push, merge, release, or CI when that is the repo's intended speed/safety split.
+
+Avoid:
+
+- adding a planner script before a policy document and contract tests prove the need;
+- duplicating existing hook or CI logic in a second executable matrix;
+- naming tiers in a way that conflicts with existing functional, release, or migration levels;
+- treating advisory model selection as an executable quality gate.
+
+Model routing can reduce token and review cost, but keep it advisory. Use low-cost models for extraction, summaries, and deterministic checklist work; medium coding models for focused implementation and debugging; and high-reasoning models for architecture, security, release, dependency, or merge-readiness decisions. Prefer capability bands in generic policy and leave exact model names to repo or user configuration.
+
 Prefer small named scripts over one opaque monolith. A single top-level gate is fine if it delegates to smaller checks such as `check_agent_handoff`, `check_no_secrets`, or `check_docker_builds`.
 
 For secret scanning, do not count a scanner as `enforced` unless it is wired into the repo-owned local pre-commit path before the broader quality gate. A standalone script that developers are merely told to run is only `partial`.
