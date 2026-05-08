@@ -2,6 +2,22 @@
 
 This directory contains specialized skills that extend the capabilities of AI agents working on this project.
 
+## Design
+
+- **[Design System Extractor](./design/design-system-extractor/SKILL.md)**: Extract a structured design system (tokens, atoms, molecules, organisms following atomic design) from Pencil .pen files, screenshots, web URLs, or HTML/CSS/Tailwind code. Produces reusable .pen skeleton, DESIGN.md, design-tokens.json, and AGENTS.md.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill design-system-extractor
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill design-system-extractor
+  ```
+
 ## General
 
 
