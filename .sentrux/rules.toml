@@ -1,23 +1,31 @@
-# Bootstrap Sentrux rules.
+# Staged Sentrux rules.
 #
-# These limits are intentionally permissive so `sentrux check .` can run during
-# the early refactor period without claiming final architectural boundaries.
-# Tighten these only after the source layout and ownership model are settled.
+# These limits now reflect the tested TypeScript CLI boundaries introduced in
+# R3-R10. They are still intentionally staged: keep the remaining temporary
+# allowances visible until a reviewed structural baseline is saved in R12.
 
 [constraints]
-# Keep score gates observational for now.
-min_quality = 0
+# Quality currently reports 0.63. Keep a little headroom for normal edits while
+# making an accidental broad structural regression fail locally.
+min_quality = 0.6
+
+# Score subdimensions remain observational until R12 records a reviewed
+# baseline with the full Sentrux metric set.
 min_modularity = 0
 min_acyclicity = 0
 min_depth = 0
 min_equality = 0
 min_redundancy = 0
 
-# Use broad ceilings until Sentrux metrics are tracked against a stable layout.
-max_cycles = 999
-max_cc = 100
-max_fn_lines = 500
-max_file_lines = 2000
+# Enforce the current no-cycle boundary and tighter size/complexity ceilings.
+max_cycles = 0
+max_cc = 50
+max_fn_lines = 240
+max_file_lines = 1500
+
+# Coupling, upward violations, and god-file detection need reviewed baseline
+# data before promotion. Two packaged skill template scripts are still over
+# 1000 lines and are tracked as a temporary staged allowance here.
 max_coupling_score = 1.0
 max_upward_violations = 999
 no_god_files = false
