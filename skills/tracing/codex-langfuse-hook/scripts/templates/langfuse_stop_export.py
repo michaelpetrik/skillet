@@ -277,7 +277,7 @@ def find_nearest_override(cwd: Path) -> Path | None:
 def resolve_settings(cwd: Path) -> Settings:
     global_env = load_env_file(CODEX_HOME / ".env")
     override_path = find_nearest_override(cwd)
-    override_env = load_env_file(override_path)
+    override_env = load_non_empty_env_file(override_path)
     project_env_path = resolve_project_env_path(cwd)
     project_env = load_non_empty_env_file(project_env_path)
 
