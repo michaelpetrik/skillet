@@ -98,6 +98,33 @@ This directory contains specialized skills that extend the capabilities of AI ag
 
 ## Coding
 
+- **[Enforce Offline Gates](./coding/enforce-offline-gates/SKILL.md)**: Enforce deterministic offline quality/security/performance/architecture gates in any repository by detecting current languages/frameworks/package managers, selecting compatible static-analysis tooling, installing and wiring tools, and enforcing execution via git hooks and CI entrypoints. Use when the user asks to set up or harden guardrails, create offline gates, enforce pre-commit/pre-push checks, standardize quality protocol across mixed stacks, or bootstrap repeatable gate workflows for Next.js, frontend, backend, monorepos, or polyglot projects.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill enforce-offline-gates
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill enforce-offline-gates
+  ```
+
+- **[Google AI Studio Export Standardizer](./coding/google-ai-studio-export-standardizer/SKILL.md)**: Standardize Google AI Studio exported React/Vite apps that use non-standard client env injection, mismatched aliases, or AI Studio-specific config hacks. Use when Codex needs to normalize an exported AI Studio app to idiomatic Vite patterns, keep the change reversible, update docs/examples, and add regression checks that protect both standardization and rollback.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill google-ai-studio-export-standardizer
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill google-ai-studio-export-standardizer
+  ```
 
 
 - **[Repo Quality Guardrails](./coding/repo-quality-guardrails/SKILL.md)**: Use when you need to audit, add, or upgrade repository-local quality, documentation, and security guardrails without overreaching. Classify the task as audit, proposal, or implementation first; separate policy from executable enforcement; prefer the smallest repo-owned change set that closes real control gaps; and verify every claimed control with local evidence. Covers GitNexus or equivalent code intelligence, pinned manifests, activatable hook wiring, diff-aware secret scanning, offline documentation gates, Docker/runtime checks, handoff evidence, and Claude Code naming via `claudecode-conventions`.

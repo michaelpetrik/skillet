@@ -1,0 +1,23 @@
+# Bootstrap Sentrux rules.
+#
+# These limits are intentionally permissive so `sentrux check .` can run during
+# the early refactor period without claiming final architectural boundaries.
+# Tighten these only after the source layout and ownership model are settled.
+
+[constraints]
+# Keep score gates observational for now.
+min_quality = 0
+min_modularity = 0
+min_acyclicity = 0
+min_depth = 0
+min_equality = 0
+min_redundancy = 0
+
+# Use broad ceilings until Sentrux metrics are tracked against a stable layout.
+max_cycles = 999
+max_cc = 100
+max_fn_lines = 500
+max_file_lines = 2000
+max_coupling_score = 1.0
+max_upward_violations = 999
+no_god_files = false
