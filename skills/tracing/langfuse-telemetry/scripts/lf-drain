@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# langfuse-telemetry drain — flush offline spool queue
+# Usage: bash lf-drain [--force]
+# --force: retry even if health state says to wait
+set -euo pipefail
+
+CYN='\033[0;36m'; GRN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[0;33m'; RST='\033[0m'
+SPOOL_DIR="$HOME/.claude/langfuse-export/spool"
+HEALTH_DIR="$HOME/.claude/langfuse-export/health"
+HOOK_DIR="$HOME/Projects/langfuse-hooks"
+ENV_FILE="$HOME/.agents/.env"
+
+force=false
+[[ "${1:-}" == "--force" ]] && force=true
+
+if [[ ! -d "$SPOOL_DIR" ]] || [[ -z "$(ls -A "$SPOOL_DIR" 2>/dev/null)" ]]; then
+  printf "${GRN}Spool is empty — nothing to drain.${RST}\n"
+  exit 0
+fi
+
+spool_count=$(find "$SPOOL_DIR" -name '*.json' | wc -l | tr -d ' ')
+printf "${CYN}Draining %s queued export(s)...${RST}\n" "$spool_count"
+
+# Clear health state if --force
+if $force && [[ -d "$HEALTH_DIR" ]]; then
+  rm -f "$HEALTH_DIR"/*.json 2>/dev/null || true
+  printf "${YEL}Cleared health backoff state (--force).${RST}\n"
+fi
+
+# Verify connectivity first
+base_url=$(grep -E '^CLAUDE_CODE_LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+[[ -n "$base_url" ]] || base_url=$(grep -E '^LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+pk=$(grep -E '^CLAUDE_CODE_LANGFUSE_PUBLIC_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+sk=$(grep -E '^CLAUDE_CODE_LANGFUSE_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+
+if [[ -z "$base_url" || -z "$pk" || -z "$sk" ]]; then
+  printf "${RED}Missing credentials in %s${RST}\n" "$ENV_FILE"
+  exit 1
+fi
+
+http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 5 \
+  -u "$pk:$sk" "${base_url}/api/public/traces?limit=1" 2>/dev/null || echo "000")
+if [[ "$http_code" != "200" ]]; then
+  printf "${RED}Langfuse unreachable (HTTP %s) — cannot drain.${RST}\n" "$http_code"
+  exit 1
+fi
+printf "${GRN}Langfuse reachable.${RST}\n"
+
+# Trigger the hook with empty payload — it will drain the spool
+echo '{}' | "$HOOK_DIR/langfuse_stop_export.sh" cc 2>/dev/null
+
+# Re-check spool
+remaining=$(find "$SPOOL_DIR" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+drained=$((spool_count - remaining))
+printf "${GRN}Drained: %s${RST}" "$drained"
+[[ "$remaining" -gt 0 ]] && printf "  ${YEL}Remaining: %s${RST}" "$remaining"
+printf "\n"

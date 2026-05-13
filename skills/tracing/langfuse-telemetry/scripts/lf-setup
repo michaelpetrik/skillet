@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# langfuse-telemetry setup — interactive configuration
+# Usage: bash lf-setup
+# Configures: ~/.agents/.env, settings.json, hook files, python deps
+set -euo pipefail
+
+CYN='\033[0;36m'; GRN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[0;33m'; BLD='\033[1m'; RST='\033[0m'
+ENV_FILE="$HOME/.agents/.env"
+HOOK_DIR="$HOME/Projects/langfuse-hooks"
+SETTINGS="$HOME/.claude/settings.json"
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+printf "${BLD}${CYN}Langfuse Telemetry Setup${RST}\n\n"
+
+# ── 1. Credentials ──
+printf "${CYN}1. Credentials${RST}\n"
+mkdir -p "$(dirname "$ENV_FILE")"
+touch "$ENV_FILE"
+
+# Read existing values. Claude Code uses a separate keypair so Codex can keep
+# the generic LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY values.
+existing_url=$(grep -E '^CLAUDE_CODE_LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+[[ -n "$existing_url" ]] || existing_url=$(grep -E '^LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+existing_pk=$(grep -E '^CLAUDE_CODE_LANGFUSE_PUBLIC_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+existing_sk=$(grep -E '^CLAUDE_CODE_LANGFUSE_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+
+prompt_val() {
+  local label="$1" current="$2" var_name="$3"
+  if [[ -n "$current" ]]; then
+    printf "  %s [%s]: " "$label" "${current:0:20}..."
+    read -r input
+    [[ -z "$input" ]] && input="$current"
+  else
+    printf "  %s: " "$label"
+    read -r input
+  fi
+  eval "$var_name=\"\$input\""
+}
+
+prompt_val "LANGFUSE_BASE_URL" "$existing_url" "base_url"
+prompt_val "CLAUDE_CODE_LANGFUSE_PUBLIC_KEY (pk-lf-...)" "$existing_pk" "pk"
+prompt_val "CLAUDE_CODE_LANGFUSE_SECRET_KEY (sk-lf-...)" "$existing_sk" "sk"
+
+# Validate
+if [[ -z "$base_url" || -z "$pk" || -z "$sk" ]]; then
+  printf "${RED}All three values are required.${RST}\n"
+  exit 1
+fi
+
+# Update .env (preserve other entries, replace Claude Code Langfuse ones)
+tmp_env=$(mktemp)
+grep -vE '^(CLAUDE_CODE_LANGFUSE_(BASE_URL|PUBLIC_KEY|SECRET_KEY|ENABLED)|CLAUDE_LANGFUSE_ENABLED)=' "$ENV_FILE" > "$tmp_env" 2>/dev/null || true
+{
+  printf 'CLAUDE_CODE_LANGFUSE_BASE_URL="%s"\n' "$base_url"
+  printf 'CLAUDE_CODE_LANGFUSE_PUBLIC_KEY="%s"\n' "$pk"
+  printf 'CLAUDE_CODE_LANGFUSE_SECRET_KEY="%s"\n' "$sk"
+  printf 'CLAUDE_CODE_LANGFUSE_ENABLED=true\n'
+} >> "$tmp_env"
+mv "$tmp_env" "$ENV_FILE"
+printf "${GRN}  Saved to %s${RST}\n\n" "$ENV_FILE"
+
+# ── 2. Test connectivity ──
+printf "${CYN}2. Testing connectivity${RST}\n"
+http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 5 \
+  -u "$pk:$sk" "${base_url}/api/public/traces?limit=1" 2>/dev/null || echo "000")
+if [[ "$http_code" == "200" ]]; then
+  printf "${GRN}  Langfuse API OK${RST}\n\n"
+else
+  printf "${RED}  Langfuse API returned HTTP %s — check URL and credentials.${RST}\n" "$http_code"
+  printf "  Continuing anyway (hook will spool offline)...\n\n"
+fi
+
+# ── 3. Python dependencies ──
+printf "${CYN}3. Python dependencies${RST}\n"
+if python3 -c "import langfuse, dotenv, httpx" 2>/dev/null; then
+  printf "${GRN}  All present${RST}\n\n"
+else
+  printf "  Installing langfuse, python-dotenv, httpx...\n"
+  pip3 install --break-system-packages -q langfuse python-dotenv httpx 2>/dev/null \
+    || pip3 install --user -q langfuse python-dotenv httpx 2>/dev/null \
+    || { printf "${RED}  Install failed. Run manually: pip3 install langfuse python-dotenv httpx${RST}\n"; }
+  printf "${GRN}  Done${RST}\n\n"
+fi
+
+# ── 4. Hook files ──
+printf "${CYN}4. Hook files${RST}\n"
+mkdir -p "$HOOK_DIR"
+template_dir="$SKILL_DIR/scripts/templates"
+if [[ -f "$template_dir/langfuse_stop_export.py" && -f "$template_dir/langfuse_stop_export.sh" ]]; then
+  install -m 644 "$template_dir/langfuse_stop_export.py" "$HOOK_DIR/langfuse_stop_export.py"
+  install -m 755 "$template_dir/langfuse_stop_export.sh" "$HOOK_DIR/langfuse_stop_export.sh"
+  printf "${GRN}  Installed hook templates to %s${RST}\n\n" "$HOOK_DIR"
+else
+  printf "${RED}  Missing bundled templates in %s${RST}\n\n" "$template_dir"
+fi
+
+# ── 5. Settings.json ──
+printf "${CYN}5. Claude Code settings${RST}\n"
+if [[ ! -f "$SETTINGS" ]]; then
+  printf "${RED}  %s not found${RST}\n" "$SETTINGS"
+  exit 1
+fi
+
+hook_command="$HOOK_DIR/langfuse_stop_export.sh cc"
+if python3 - "$SETTINGS" "$hook_command" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+hook_command = sys.argv[2]
+data = json.loads(settings_path.read_text(encoding="utf-8"))
+hooks = data.setdefault("hooks", {})
+stop_entries = hooks.setdefault("Stop", [])
+if not stop_entries:
+    stop_entries.append({"hooks": []})
+hook_list = stop_entries[0].setdefault("hooks", [])
+for hook in hook_list:
+    command = hook.get("command", "")
+    if hook.get("type") == "command" and "langfuse_stop_export" in command:
+        hook["command"] = hook_command
+        hook.setdefault("timeout", 15)
+        hook.setdefault("statusMessage", "Exporting session to Langfuse...")
+        break
+else:
+    hook_list.append({
+        "type": "command",
+        "command": hook_command,
+        "timeout": 15,
+        "statusMessage": "Exporting session to Langfuse...",
+    })
+settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+then
+  printf "${GRN}  Stop hook registered with cc profile${RST}\n"
+else
+  printf "${RED}  Failed to update Stop hook in %s${RST}\n" "$SETTINGS"
+fi
+
+# Check OTel env
+if grep -q "CLAUDE_CODE_ENABLE_TELEMETRY" "$SETTINGS" 2>/dev/null; then
+  printf "${GRN}  OTel env vars present${RST}\n"
+else
+  # Generate auth header
+  auth_header=$(printf '%s:%s' "$pk" "$sk" | base64)
+  printf "${YEL}  OTel not configured. Add to settings.json env block:${RST}\n"
+  cat <<ENVEOF
+  {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_TRACES_EXPORTER": "none",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "${base_url}/api/public/otel",
+    "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic ${auth_header}"
+  }
+ENVEOF
+fi
+
+# ── Done ──
+printf "\n${BLD}${GRN}Setup complete.${RST}\n"
+printf "  Run ${CYN}lf-doctor${RST} to verify everything.\n"
+printf "  Telemetry will activate on next Claude Code session.\n"

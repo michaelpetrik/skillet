@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# langfuse-telemetry doctor — comprehensive diagnostic check
+# Usage: bash lf-doctor
+set -euo pipefail
+
+RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[0;33m'; CYN='\033[0;36m'; RST='\033[0m'
+PASS="${GRN}PASS${RST}"; FAIL="${RED}FAIL${RST}"; WARN="${YEL}WARN${RST}"
+ENV_FILE="$HOME/.agents/.env"
+HOOK_DIR="$HOME/Projects/langfuse-hooks"
+SETTINGS="$HOME/.claude/settings.json"
+SPOOL_DIR="$HOME/.claude/langfuse-export/spool"
+HEALTH_DIR="$HOME/.claude/langfuse-export/health"
+EXPORTED_DIR="$HOME/.claude/langfuse-export/exported"
+LOG_FILE="$HOME/.claude/log/langfuse-export.log"
+VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/VERSION"
+errors=0
+
+header() { printf "\n${CYN}── %s ──${RST}\n" "$1"; }
+check() {
+  local label="$1" result="$2"
+  if [[ "$result" == "pass" ]]; then printf "  %-40s %b\n" "$label" "$PASS"
+  elif [[ "$result" == "warn" ]]; then printf "  %-40s %b  %s\n" "$label" "$WARN" "${3:-}"
+  else printf "  %-40s %b  %s\n" "$label" "$FAIL" "${3:-}"; ((errors++)) || true; fi
+}
+
+printf "${CYN}Langfuse Telemetry Doctor${RST}"
+[[ -f "$VERSION_FILE" ]] && printf " v%s" "$(cat "$VERSION_FILE" | tr -d '[:space:]')"
+printf "\n"
+
+# ── 1. Credentials ──
+header "Credentials ($ENV_FILE)"
+if [[ -f "$ENV_FILE" ]]; then
+  check ".env file exists" "pass"
+  base_url=$(grep -E '^CLAUDE_CODE_LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  [[ -n "$base_url" ]] || base_url=$(grep -E '^LANGFUSE_BASE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  pk=$(grep -E '^CLAUDE_CODE_LANGFUSE_PUBLIC_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  sk=$(grep -E '^CLAUDE_CODE_LANGFUSE_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  [[ -n "$base_url" ]] && check "Langfuse base URL" "pass" || check "Langfuse base URL" "fail" "missing LANGFUSE_BASE_URL or CLAUDE_CODE_LANGFUSE_BASE_URL"
+  [[ -n "$pk" && "$pk" == pk-lf-* ]] && check "CLAUDE_CODE_LANGFUSE_PUBLIC_KEY" "pass" || check "CLAUDE_CODE_LANGFUSE_PUBLIC_KEY" "fail" "missing or invalid"
+  [[ -n "$sk" && "$sk" == sk-lf-* ]] && check "CLAUDE_CODE_LANGFUSE_SECRET_KEY" "pass" || check "CLAUDE_CODE_LANGFUSE_SECRET_KEY" "fail" "missing or invalid"
+else
+  check ".env file exists" "fail" "create $ENV_FILE"
+  base_url=""; pk=""; sk=""
+fi
+
+# ── 2. Python dependencies ──
+header "Python Dependencies"
+for mod in langfuse dotenv httpx; do
+  if python3 -c "import $mod" 2>/dev/null; then check "$mod" "pass"
+  else check "$mod" "fail" "pip3 install --break-system-packages langfuse python-dotenv httpx"; fi
+done
+
+# ── 3. Hook files ──
+header "Hook Files ($HOOK_DIR)"
+if [[ -d "$HOOK_DIR" ]]; then
+  check "Hook directory" "pass"
+  [[ -x "$HOOK_DIR/langfuse_stop_export.sh" ]] && check "Shell wrapper (executable)" "pass" || check "Shell wrapper" "fail" "missing or not executable"
+  [[ -f "$HOOK_DIR/langfuse_stop_export.py" ]] && check "Python export script" "pass" || check "Python export script" "fail" "missing"
+else
+  check "Hook directory" "fail" "mkdir -p $HOOK_DIR"
+fi
+
+# ── 4. Settings.json ──
+header "Claude Code Settings ($SETTINGS)"
+if [[ -f "$SETTINGS" ]]; then
+  check "settings.json exists" "pass"
+  if grep -q "langfuse_stop_export.sh cc" "$SETTINGS" 2>/dev/null; then
+    check "Stop hook registered with cc profile" "pass"
+  elif grep -q "langfuse_stop_export" "$SETTINGS" 2>/dev/null; then
+    check "Stop hook registered with cc profile" "fail" "hook exists but does not pass cc"
+  else
+    check "Stop hook registered with cc profile" "fail" "hook not in settings.json"
+  fi
+  if grep -q "CLAUDE_CODE_ENABLE_TELEMETRY" "$SETTINGS" 2>/dev/null; then
+    check "OTel telemetry enabled" "pass"
+  else
+    check "OTel telemetry enabled" "warn" "not configured (optional)"
+  fi
+  if grep -q "OTEL_LOGS_EXPORTER.*none" "$SETTINGS" 2>/dev/null; then
+    check "OTel logs disabled (no duplication)" "pass"
+  elif grep -q "OTEL_LOGS_EXPORTER" "$SETTINGS" 2>/dev/null; then
+    check "OTel logs exporter" "warn" "set to 'none' to avoid duplication"
+  fi
+else
+  check "settings.json exists" "fail"
+fi
+
+# ── 5. Connectivity ──
+header "Langfuse Connectivity"
+if [[ -n "${base_url:-}" && -n "${pk:-}" && -n "${sk:-}" ]]; then
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 5 \
+    -u "$pk:$sk" "${base_url}/api/public/traces?limit=1" 2>/dev/null || echo "000")
+  if [[ "$http_code" == "200" ]]; then check "API auth (traces endpoint)" "pass"
+  elif [[ "$http_code" == "000" ]]; then check "API auth" "fail" "connection refused/timeout"
+  else check "API auth" "fail" "HTTP $http_code"; fi
+
+  otel_code=$(curl -s -o /dev/null -w "%{http_code}" -m 5 \
+    "${base_url}/api/public/otel/v1/traces" \
+    -H "Authorization: Basic $(printf '%s:%s' "$pk" "$sk" | base64)" \
+    -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "000")
+  if [[ "$otel_code" == "200" ]]; then check "OTLP endpoint" "pass"
+  elif [[ "$otel_code" == "000" ]]; then check "OTLP endpoint" "fail" "unreachable"
+  else check "OTLP endpoint" "warn" "HTTP $otel_code"; fi
+else
+  check "Connectivity" "warn" "skipped (missing credentials)"
+fi
+
+# ── 6. Spool & Health ──
+header "Export Queue"
+spool_count=0
+[[ -d "$SPOOL_DIR" ]] && spool_count=$(find "$SPOOL_DIR" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+exported_count=0
+[[ -d "$EXPORTED_DIR" ]] && exported_count=$(find "$EXPORTED_DIR" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+
+if [[ "$spool_count" -eq 0 ]]; then check "Pending exports (spool)" "pass" "0 queued"
+elif [[ "$spool_count" -lt 10 ]]; then check "Pending exports (spool)" "warn" "$spool_count queued"
+else check "Pending exports (spool)" "fail" "$spool_count queued — run lf-drain"; fi
+
+check "Successfully exported" "pass" "$exported_count total"
+
+if [[ -d "$HEALTH_DIR" ]]; then
+  for hf in "$HEALTH_DIR"/*.json; do
+    [[ -f "$hf" ]] || continue
+    failures=$(python3 -c "import json; print(json.load(open('$hf')).get('consecutive_failures',0))" 2>/dev/null || echo "?")
+    last_err=$(python3 -c "import json; e=json.load(open('$hf')).get('last_error',''); print(e[:60] if e else 'none')" 2>/dev/null || echo "?")
+    if [[ "$failures" == "0" || "$failures" == "?" ]]; then check "Health state" "pass" "no failures"
+    else check "Health state" "warn" "$failures consecutive failures: $last_err"; fi
+    break
+  done
+fi
+
+# ── 7. Last export ──
+header "Recent Activity"
+if [[ -f "$LOG_FILE" ]]; then
+  last_export=$(grep "snapshot-exported" "$LOG_FILE" 2>/dev/null | tail -1 || true)
+  last_error=$(grep -E "(fatal-error|snapshot-spooled|spool-export-failed)" "$LOG_FILE" 2>/dev/null | tail -1 || true)
+  if [[ -n "$last_export" ]]; then
+    ts=$(echo "$last_export" | cut -d' ' -f1)
+    check "Last successful export" "pass" "$ts"
+  else
+    check "Last successful export" "warn" "none found in log"
+  fi
+  if [[ -n "$last_error" ]]; then
+    ts=$(echo "$last_error" | cut -d' ' -f1)
+    check "Last error" "warn" "$ts"
+  fi
+  log_lines=$(wc -l < "$LOG_FILE" | tr -d ' ')
+  check "Log file" "pass" "$log_lines lines"
+else
+  check "Log file" "warn" "no log yet (no exports attempted)"
+fi
+
+# ── Summary ──
+printf "\n"
+if [[ "$errors" -eq 0 ]]; then
+  printf "${GRN}All checks passed.${RST}\n"
+else
+  printf "${RED}%d check(s) failed.${RST} Run ${CYN}lf-setup${RST} to fix.\n" "$errors"
+fi
+exit "$errors"

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# langfuse-telemetry status — quick overview of export state
+# Usage: bash lf-status
+set -euo pipefail
+
+CYN='\033[0;36m'; GRN='\033[0;32m'; YEL='\033[0;33m'; DIM='\033[2m'; RST='\033[0m'
+SPOOL_DIR="$HOME/.claude/langfuse-export/spool"
+EXPORTED_DIR="$HOME/.claude/langfuse-export/exported"
+HEALTH_DIR="$HOME/.claude/langfuse-export/health"
+LOG_FILE="$HOME/.claude/log/langfuse-export.log"
+
+# Counts
+spool=0; exported=0
+[[ -d "$SPOOL_DIR" ]] && spool=$(find "$SPOOL_DIR" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+[[ -d "$EXPORTED_DIR" ]] && exported=$(find "$EXPORTED_DIR" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+
+# Spool size
+spool_bytes=0
+[[ -d "$SPOOL_DIR" && "$spool" -gt 0 ]] && spool_bytes=$(du -sk "$SPOOL_DIR" 2>/dev/null | cut -f1 || echo 0)
+
+# Health
+health_status="healthy"
+if [[ -d "$HEALTH_DIR" ]]; then
+  for hf in "$HEALTH_DIR"/*.json; do
+    [[ -f "$hf" ]] || continue
+    failures=$(python3 -c "import json; print(json.load(open('$hf')).get('consecutive_failures',0))" 2>/dev/null || echo 0)
+    [[ "$failures" -gt 0 ]] && health_status="degraded ($failures failures)"
+    break
+  done
+fi
+
+# Last export
+last_ts="never"
+if [[ -f "$LOG_FILE" ]]; then
+  last_line=$(grep "snapshot-exported" "$LOG_FILE" 2>/dev/null | tail -1)
+  [[ -n "$last_line" ]] && last_ts=$(echo "$last_line" | cut -d' ' -f1 | cut -dT -f1,2 | tr T ' ')
+fi
+
+# Output
+printf "${CYN}Langfuse Export Status${RST}\n"
+printf "  %-22s %s\n" "Queued (spool):" "$spool (${spool_bytes}KB)"
+printf "  %-22s %s\n" "Exported (total):" "$exported"
+printf "  %-22s %s\n" "Health:" "$health_status"
+printf "  %-22s %s\n" "Last export:" "$last_ts"
+
+if [[ "$spool" -gt 0 ]]; then
+  printf "\n${YEL}Queued sessions:${RST}\n"
+  for sf in "$SPOOL_DIR"/*.json; do
+    [[ -f "$sf" ]] || continue
+    sid=$(python3 -c "import json; print(json.load(open('$sf')).get('session_id','?')[:12])" 2>/dev/null || echo "?")
+    err=$(python3 -c "import json; e=json.load(open('$sf')).get('last_error',''); print(e[:50])" 2>/dev/null || echo "?")
+    attempts=$(python3 -c "import json; print(json.load(open('$sf')).get('attempt_count',0))" 2>/dev/null || echo "?")
+    printf "  ${DIM}%s${RST}  attempts=%s  %s\n" "$sid" "$attempts" "$err"
+  done
+fi

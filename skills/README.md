@@ -50,6 +50,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```
 ## Tracing
 
+
 - **[Codex Langfuse Hook](./tracing/codex-langfuse-hook/SKILL.md)**: Install or repair the global Codex Stop hook that exports session transcripts to Langfuse, then guide the user to set the required `LANGFUSE_*` globals in `~/.codex/.env`. Use when the user wants Codex sessions sent to Langfuse, wants the hook reinstalled, or wants project-local dotenv overrides for Langfuse routing.
 
   **Install using skills.sh:**
@@ -62,6 +63,20 @@ This directory contains specialized skills that extend the capabilities of AI ag
   With `bun`:
   ```bash
   bunx skills add michaelpetrik/skillet --skill codex-langfuse-hook
+  ```
+
+- **[Langfuse Telemetry](./tracing/langfuse-telemetry/SKILL.md)**: >
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill langfuse-telemetry
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill langfuse-telemetry
   ```
 ## Misc
 
