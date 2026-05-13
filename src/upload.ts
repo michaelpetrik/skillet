@@ -74,6 +74,11 @@ interface FileMap {
   [relative: string]: string;
 }
 
+interface SkillTargetPaths {
+  targetRoot: string;
+  targetRelativeRoot: string;
+}
+
 export function uploadSkill(options: UploadOptions): UploadResult {
   if (options.remote && options.repo) {
     throw new Error("Use either --repo or --remote, not both.");
@@ -88,7 +93,7 @@ export function uploadSkill(options: UploadOptions): UploadResult {
     throw new Error("Category must not be empty.");
   }
 
-  const targetName = options.targetName || path.basename(sourceRoot);
+  const targetName = validateTargetName(options.targetName ?? path.basename(sourceRoot));
   let tempParent: string | undefined;
   let repoRoot: string;
   let installRepoSlug: string;
@@ -192,15 +197,15 @@ function publishIntoRepo(input: {
     throw new Error(`Source skill is missing ${SKILL_FILE}: ${sourceSkillPath}`);
   }
 
+  const safeTargetName = validateTargetName(targetName);
   const categoryTitle = slugToTitle(categorySlug);
-  const targetRelativeRoot = path.join("skills", categorySlug, targetName);
-  const targetRoot = path.join(repoRoot, targetRelativeRoot);
+  const { targetRoot, targetRelativeRoot } = resolveSkillTargetPaths(repoRoot, categorySlug, safeTargetName);
   const targetSkillPath = path.join(targetRoot, SKILL_FILE);
   const targetPreviouslyExisted = fs.existsSync(targetRoot);
 
   const sourceSkillText = fs.readFileSync(sourceSkillPath, "utf8");
   const sourceDocument = parseDocument(sourceSkillText);
-  const sourceName = extractFrontmatterValue(sourceDocument.frontmatterLines, "name") || targetName;
+  const sourceName = extractFrontmatterValue(sourceDocument.frontmatterLines, "name") || safeTargetName;
   const sourceDescription = extractFrontmatterValue(sourceDocument.frontmatterLines, "description") || "";
   const sourceVersion = extractFrontmatterValue(sourceDocument.frontmatterLines, "version");
   const displayName = extractH1(sourceDocument.body) || slugToTitle(sourceName);
@@ -273,7 +278,7 @@ function publishIntoRepo(input: {
     readmePath: path.join(repoRoot, README_RELATIVE_PATH),
     categorySlug,
     categoryTitle,
-    targetName,
+    targetName: safeTargetName,
     displayName,
     description: sourceDescription,
     installRepoSlug,
@@ -321,8 +326,8 @@ function publishIntoRepo(input: {
     sourceRoot,
     repoRoot,
     targetRoot,
-    targetRelativeRoot: targetRelativeRoot.split(path.sep).join("/"),
-    targetName,
+    targetRelativeRoot,
+    targetName: safeTargetName,
     targetPreviouslyExisted,
     skillName: sourceName,
     displayName,
@@ -341,6 +346,49 @@ function publishIntoRepo(input: {
     noChanges: !(targetSkillNeedsWrite || changelogUpdated || readme.changed || filesWritten.length > 0 || filesRemoved.length > 0),
     mode: "local",
   };
+}
+
+function validateTargetName(value: string): string {
+  if (value.length === 0 || value.trim().length === 0) {
+    throw new Error("Invalid target name: target name must not be empty.");
+  }
+
+  if (value === "." || value === "..") {
+    throw new Error("Invalid target name: target name must be a skill directory name.");
+  }
+
+  if (path.isAbsolute(value) || path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
+    throw new Error("Invalid target name: absolute paths are not allowed.");
+  }
+
+  if (value.includes("/") || value.includes("\\")) {
+    throw new Error("Invalid target name: path separators are not allowed.");
+  }
+
+  if (/[\u0000-\u001F\u007F]/.test(value)) {
+    throw new Error("Invalid target name: control characters are not allowed.");
+  }
+
+  return value;
+}
+
+function resolveSkillTargetPaths(repoRoot: string, categorySlug: string, targetName: string): SkillTargetPaths {
+  const skillsRoot = path.resolve(repoRoot, "skills");
+  const targetRoot = path.resolve(skillsRoot, categorySlug, targetName);
+
+  if (!isPathInside(skillsRoot, targetRoot)) {
+    throw new Error("Resolved upload target must stay under the skills directory.");
+  }
+
+  return {
+    targetRoot,
+    targetRelativeRoot: relativeFrom(repoRoot, targetRoot),
+  };
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 function collectFiles(root: string): FileMap {

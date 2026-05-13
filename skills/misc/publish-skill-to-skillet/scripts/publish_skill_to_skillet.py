@@ -108,6 +108,42 @@ def resolve_source_root(source: str) -> Path:
     raise SystemExit(f"Source path does not exist: {source_path}")
 
 
+def validate_target_name(value: str) -> str:
+    if not value or not value.strip():
+        raise SystemExit("Invalid target name: target name must not be empty.")
+
+    if value in {".", ".."}:
+        raise SystemExit("Invalid target name: target name must be a skill directory name.")
+
+    if Path(value).is_absolute() or re.match(r"^[A-Za-z]:[\\/]", value) or value.startswith("\\\\"):
+        raise SystemExit("Invalid target name: absolute paths are not allowed.")
+
+    if "/" in value or "\\" in value:
+        raise SystemExit("Invalid target name: path separators are not allowed.")
+
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise SystemExit("Invalid target name: control characters are not allowed.")
+
+    return value
+
+
+def path_is_inside(parent: Path, child: Path) -> bool:
+    try:
+        child.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def resolve_skill_target_paths(repo_root: Path, category_slug: str, target_name: str) -> tuple[Path, Path]:
+    skills_root = (repo_root / "skills").resolve()
+    target_root = (skills_root / category_slug / target_name).resolve()
+    if not path_is_inside(skills_root, target_root):
+        raise SystemExit("Resolved upload target must stay under the skills directory.")
+    target_relative_root = Path("skills") / category_slug / target_name
+    return target_root, target_relative_root
+
+
 def slug_to_title(slug: str) -> str:
     return " ".join(part.capitalize() for part in slug.replace("_", "-").split("-") if part)
 
@@ -509,14 +545,16 @@ def publish_into_repo(
 ) -> dict[str, object]:
     if not repo_root.exists():
         raise SystemExit(f"Skillet repo does not exist: {repo_root}")
+    repo_root = repo_root.resolve()
+
+    target_name = validate_target_name(target_name)
 
     source_skill_path = source_root / SKILL_FILE
     if not source_skill_path.exists():
         raise SystemExit(f"Source skill is missing {SKILL_FILE}: {source_skill_path}")
 
     category_title = slug_to_title(category_slug)
-    target_relative_root = Path("skills") / category_slug / target_name
-    target_root = repo_root / target_relative_root
+    target_root, target_relative_root = resolve_skill_target_paths(repo_root, category_slug, target_name)
     target_skill_path = target_root / SKILL_FILE
     target_previously_existed = target_root.exists()
 
@@ -672,7 +710,7 @@ def main() -> None:
     if not category_slug:
         raise SystemExit("Category must not be empty.")
 
-    target_name = args.target_name or source_root.name
+    target_name = validate_target_name(args.target_name if args.target_name is not None else source_root.name)
 
     temp_parent: Path | None = None
     if args.repo:
