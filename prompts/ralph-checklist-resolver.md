@@ -23,4 +23,5 @@ Required workflow:
 13. Confirm `git status --short --untracked-files=all` is clean after the commit. If it is not clean, do not produce a normal completion handoff; either commit the remaining intended files or stop as blocked with the exact dirty paths.
 14. Never hide unfinished work in `git stash`. If verification cannot be made acceptable, restore only your own edits or leave a clearly blocked run with no uncommitted files.
 15. Every smith/worker involved in the run must leave a concise handoff with two checklists: `Done` for completed changes and verification evidence, and `TODO` for remaining work, blockers, and exact next commands.
-16. Leave a concise final summary with changed files, verification results, final clean worktree evidence, the smith checklist, and the next blocker.
+16. Treat `TODO` as machine-readable handoff data for the higher-level Ralph supervisor, not as a request for the user to choose the next step.
+17. Leave a concise final summary with changed files, verification results, final clean worktree evidence, the smith checklist, and the next blocker.

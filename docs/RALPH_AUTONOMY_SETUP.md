@@ -16,6 +16,14 @@ Launch a worker:
 scripts/dev/ralph_checklist.sh --task "Advance the first unchecked Skillet refactor item without reverting user edits." --execute
 ```
 
+Launch the higher-level loop that keeps spawning checklist workers until blocked, complete, or max iterations are reached:
+
+```bash
+scripts/dev/ralph_autoloop.sh \
+  --task "Keep advancing Skillet refactor items without asking the user for next steps." \
+  --execute
+```
+
 Use an optional quality command:
 
 ```bash
@@ -31,6 +39,7 @@ Artifacts are written under `var/dev/ralph-checklist/runs/<run-id>/`.
 - Read repo instructions and `docs/REFACTOR_PLAN.md` before changing code.
 - Advance one item per run.
 - Update the plan only when evidence justifies a status change.
+- Use `scripts/dev/ralph_autoloop.sh` for unattended continuation. `Done` and `TODO` remain required as audit handoff, but the autoloop consumes them and continues without asking the user for the next step.
 - Treat worktree hygiene as mandatory. A Ralph run must start by recording `git status --short --untracked-files=all`.
 - Do not start new work on top of unrelated dirty state. Resolve, verify, and commit existing plan-related changes first, or stop as blocked.
 - A completed Ralph run must leave no uncommitted changes. Run verification, commit the intended diff, and confirm a clean `git status --short --untracked-files=all` before handoff.

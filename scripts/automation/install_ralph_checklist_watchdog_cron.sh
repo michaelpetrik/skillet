@@ -44,6 +44,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
     printf 'RALPH_WATCHDOG_STALL_RECOVERY_COOLDOWN_SECONDS=7200\n'
     printf 'RALPH_WATCHDOG_MIN_SPAWN_INTERVAL_SECONDS=60\n'
     printf 'RALPH_WATCHDOG_BYPASS_SANDBOX=true\n'
+    printf 'RALPH_AUTOLOOP_MAX_ITERATIONS=6\n'
+    printf 'RALPH_AUTOLOOP_PUSH=true\n'
+    printf 'RALPH_AUTOLOOP_QUALITY_COMMAND=scripts/ci/run_quality_gates.sh\n'
   } >"$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
@@ -72,6 +75,9 @@ ensure_env_key "RALPH_WATCHDOG_PROBE_SECONDS" "30"
 ensure_env_key "RALPH_WATCHDOG_STALL_RECOVERY_COOLDOWN_SECONDS" "7200"
 ensure_env_key "RALPH_WATCHDOG_MIN_SPAWN_INTERVAL_SECONDS" "60"
 ensure_env_key "RALPH_WATCHDOG_BYPASS_SANDBOX" "true"
+ensure_env_key "RALPH_AUTOLOOP_MAX_ITERATIONS" "6"
+ensure_env_key "RALPH_AUTOLOOP_PUSH" "true"
+ensure_env_key "RALPH_AUTOLOOP_QUALITY_COMMAND" "scripts/ci/run_quality_gates.sh"
 
 chmod +x "$ENTRYPOINT"
 : >>"$CRON_LOG"

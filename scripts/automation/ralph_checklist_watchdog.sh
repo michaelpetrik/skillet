@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="${RALPH_REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd -P)}"
 JOB_NAME="${RALPH_WATCHDOG_JOB_NAME:-skillet-ralph-refactor-watchdog}"
 PLAN_FILE="${RALPH_PLAN_FILE:-docs/REFACTOR_PLAN.md}"
-RALPH_ENTRYPOINT="${RALPH_WATCHDOG_RALPH_ENTRYPOINT:-$REPO_ROOT/scripts/dev/ralph_checklist.sh}"
+RALPH_ENTRYPOINT="${RALPH_WATCHDOG_RALPH_ENTRYPOINT:-$REPO_ROOT/scripts/dev/ralph_autoloop.sh}"
 RUNTIME_ROOT="${RALPH_WATCHDOG_RUNTIME_ROOT:-$REPO_ROOT/var/automation/$JOB_NAME}"
 LOCK_FILE="$RUNTIME_ROOT/watchdog.lock"
 EVENTS_FILE="$RUNTIME_ROOT/events.jsonl"
@@ -217,7 +217,7 @@ spawn_recovery() {
     printf 'cd %s\n' "$(shell_quote "$REPO_ROOT")"
     printf 'exec %s --execute --task-id %s --plan-file %s --task %s >> %s 2>> %s\n' \
       "$(shell_quote "$RALPH_ENTRYPOINT")" "$(shell_quote "$task_id")" "$(shell_quote "$PLAN_FILE")" \
-      "$(shell_quote "Watchdog trigger: $reason. Advance one implementation-plan item through the Ralph workflow.")" \
+      "$(shell_quote "Watchdog trigger: $reason. Keep advancing implementation-plan items through the Ralph autoloop until blocked, complete, or max iterations are reached.")" \
       "$(shell_quote "$run_dir/events.jsonl")" "$(shell_quote "$run_dir/stderr.log")"
   } >"$runner"
   chmod 700 "$runner"
