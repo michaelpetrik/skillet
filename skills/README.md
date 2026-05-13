@@ -170,3 +170,19 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill iterm-dir-colors
   ```
+
+## Vývoj
+
+- **[Repo Setup](./vývoj/repo-setup/SKILL.md)**: Bootstrap or retrofit a repository for AI-orchestrated development with Ralph-style loops, quality gates, ADRs, TDD split authorship, Codex Spark implementation tasks, and release/deployment controls. Use when setting up a new repo, hardening an existing repo, adding the three-loop workflow for specification/TDD/deployment, creating repo-local `.ralph` contracts, defining DoD/AC/ADR templates, or preparing automated AI development guardrails.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill repo-setup
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill repo-setup
+  ```

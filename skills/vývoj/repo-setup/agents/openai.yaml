@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Setup"
+  short_description: "Bootstrap AI-safe repo workflows"
+  default_prompt: "Use $repo-setup to bootstrap quality gates, Ralph loops, TDD handoffs, ADRs, and release workflow in this repository."
