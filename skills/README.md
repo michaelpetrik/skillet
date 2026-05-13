@@ -154,3 +154,19 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill repo-quality-guardrails
   ```
+
+## Environment Setup
+
+- **[iTerm Directory Colors](./environment-setup/iterm-dir-colors/SKILL.md)**: Configure project-local iTerm2 directory colors by creating or updating `.iterm2-colors` files. Use when the user wants a repo or folder tinted in iTerm, wants a chosen or auto-picked color, prefers dark backgrounds, or wants badge text derived from the directory name.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill iterm-dir-colors
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill iterm-dir-colors
+  ```

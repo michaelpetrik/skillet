@@ -1,0 +1,8 @@
+interface:
+  display_name: "iTerm Folder Colors"
+  short_description: "Create dark iTerm folder color files."
+  brand_color: "#7e2f3b"
+  default_prompt: "Use $iterm-dir-colors to create or update a folder-local .iterm2-colors file with a chosen or auto-picked dark palette."
+
+policy:
+  allow_implicit_invocation: true
