@@ -134,7 +134,11 @@ echo 'CLAUDE_LANGFUSE_ENABLED=0' >> ~/.agents/.env
 
 ## Version History
 
-See `VERSION` file. Current: 1.1.0
+See `VERSION` file. Current: 1.1.1
+
+### 1.1.1
+
+- Fix published skill metadata frontmatter formatting for Skillet
 
 ### 1.1.0
 

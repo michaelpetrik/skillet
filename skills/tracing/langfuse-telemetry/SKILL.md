@@ -1,12 +1,8 @@
 ---
 name: langfuse-telemetry
-description: >
+description: Set up and manage Claude Code session telemetry to self-hosted Langfuse with OTel metrics and Stop hook transcript exports.
 category: Tracing
-version: 1.1.0
-  Set up and manage Claude Code session telemetry to self-hosted Langfuse.
-  Use when: 'set up langfuse', 'track sessions', 'langfuse telemetry',
-  'nastav langfuse', 'langfuse doctor', 'langfuse status'.
-  Dual-channel: OTel metrics + Stop hook for full transcripts.
+version: 1.1.1
 allowed-tools: Read, Bash, Edit, Write, Glob
 ---
 

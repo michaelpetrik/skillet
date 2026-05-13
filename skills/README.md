@@ -65,7 +65,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
   bunx skills add michaelpetrik/skillet --skill codex-langfuse-hook
   ```
 
-- **[Langfuse Telemetry](./tracing/langfuse-telemetry/SKILL.md)**: >
+- **[Langfuse Telemetry](./tracing/langfuse-telemetry/SKILL.md)**: Set up and manage Claude Code session telemetry to self-hosted Langfuse with OTel metrics and Stop hook transcript exports.
 
   **Install using skills.sh:**
 
