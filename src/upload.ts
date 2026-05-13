@@ -35,6 +35,7 @@ export interface UploadOptions {
   dryRun: boolean;
   keepTemp: boolean;
   commandRunner?: CommandRunner;
+  clock?: () => Date;
 }
 
 export interface UploadResult {
@@ -79,6 +80,33 @@ interface SkillTargetPaths {
   targetRelativeRoot: string;
 }
 
+interface UploadWriteOperation {
+  type: "write";
+  targetPath: string;
+  targetRelativePath: string;
+  content: string;
+}
+
+interface UploadCopyOperation {
+  type: "copy";
+  sourcePath: string;
+  targetPath: string;
+  targetRelativePath: string;
+}
+
+interface UploadRemoveOperation {
+  type: "remove";
+  targetPath: string;
+  targetRelativePath: string;
+}
+
+type UploadOperation = UploadWriteOperation | UploadCopyOperation | UploadRemoveOperation;
+
+interface UploadPlan {
+  result: UploadResult;
+  operations: UploadOperation[];
+}
+
 export function uploadSkill(options: UploadOptions): UploadResult {
   if (options.remote && options.repo) {
     throw new Error("Use either --repo or --remote, not both.");
@@ -115,15 +143,20 @@ export function uploadSkill(options: UploadOptions): UploadResult {
   }
 
   try {
-    const result = publishIntoRepo({
+    const plan = planUploadIntoRepo({
       repoRoot,
       sourceRoot,
       categorySlug,
       targetName,
       dryRun: options.dryRun,
       installRepoSlug,
+      clock: options.clock ?? systemClock,
     });
 
+    if (!options.dryRun) {
+      applyUploadPlan(plan);
+    }
+    const result = plan.result;
     result.mode = mode;
 
     if (mode === "remote") {
@@ -175,15 +208,16 @@ function resolveSourceRoot(source: string): string {
   throw new Error(`Unsupported source path: ${sourcePath}`);
 }
 
-function publishIntoRepo(input: {
+function planUploadIntoRepo(input: {
   repoRoot: string;
   sourceRoot: string;
   categorySlug: string;
   targetName: string;
   dryRun: boolean;
   installRepoSlug: string;
-}): UploadResult {
-  const { repoRoot, sourceRoot, categorySlug, targetName, dryRun, installRepoSlug } = input;
+  clock: () => Date;
+}): UploadPlan {
+  const { repoRoot, sourceRoot, categorySlug, targetName, dryRun, installRepoSlug, clock } = input;
 
   if (!fs.existsSync(repoRoot)) {
     throw new Error(`Skillet repo does not exist: ${repoRoot}`);
@@ -269,6 +303,7 @@ function publishIntoRepo(input: {
       changed,
       removed,
       initialRelease: !targetPreviouslyExisted,
+      publicationDate: formatPublicationDate(clock),
     });
     changelogUpdated = changelog.changed;
     changelogContent = changelog.content;
@@ -284,68 +319,120 @@ function publishIntoRepo(input: {
     installRepoSlug,
   });
 
-  const filesWritten: string[] = [];
-  const filesRemoved: string[] = [];
+  const operations: UploadOperation[] = [];
 
-  ensureDirectory(targetRoot, dryRun);
   for (const [relative, sourcePath] of Object.entries(sourceFiles)) {
     const targetPath = path.join(targetRoot, relative);
+    const targetRelativePath = relativeFrom(repoRoot, targetPath);
 
     if (relative === SKILL_FILE) {
       if (targetSkillNeedsWrite) {
-        writeText(targetPath, publishedSkillText, dryRun);
-        filesWritten.push(relativeFrom(repoRoot, targetPath));
+        operations.push({
+          type: "write",
+          targetPath,
+          targetRelativePath,
+          content: publishedSkillText,
+        });
       }
       continue;
     }
 
     const needsCopy = !fs.existsSync(targetPath) || fileDigest(sourcePath) !== fileDigest(targetPath);
     if (needsCopy) {
-      copyFile(sourcePath, targetPath, dryRun);
-      filesWritten.push(relativeFrom(repoRoot, targetPath));
+      operations.push({
+        type: "copy",
+        sourcePath,
+        targetPath,
+        targetRelativePath,
+      });
     }
   }
 
   for (const relative of removed) {
     const targetPath = path.join(targetRoot, relative);
-    removePath(targetPath, dryRun);
-    filesRemoved.push(relativeFrom(repoRoot, targetPath));
+    operations.push({
+      type: "remove",
+      targetPath,
+      targetRelativePath: relativeFrom(repoRoot, targetPath),
+    });
   }
 
   if (changelogUpdated) {
-    writeText(changelogPath, changelogContent, dryRun);
-    filesWritten.push(relativeFrom(repoRoot, changelogPath));
+    operations.push({
+      type: "write",
+      targetPath: changelogPath,
+      targetRelativePath: relativeFrom(repoRoot, changelogPath),
+      content: changelogContent,
+    });
   }
 
   if (readme.changed) {
-    writeText(path.join(repoRoot, README_RELATIVE_PATH), readme.content, dryRun);
-    filesWritten.push(README_RELATIVE_PATH.split(path.sep).join("/"));
+    operations.push({
+      type: "write",
+      targetPath: path.join(repoRoot, README_RELATIVE_PATH),
+      targetRelativePath: README_RELATIVE_PATH.split(path.sep).join("/"),
+      content: readme.content,
+    });
   }
 
+  const filesWritten = operations
+    .filter(
+      (operation): operation is UploadWriteOperation | UploadCopyOperation =>
+        operation.type === "write" || operation.type === "copy",
+    )
+    .map((operation) => operation.targetRelativePath);
+  const filesRemoved = operations
+    .filter((operation): operation is UploadRemoveOperation => operation.type === "remove")
+    .map((operation) => operation.targetRelativePath);
+
   return {
-    sourceRoot,
-    repoRoot,
-    targetRoot,
-    targetRelativeRoot,
-    targetName: safeTargetName,
-    targetPreviouslyExisted,
-    skillName: sourceName,
-    displayName,
-    category: categorySlug,
-    categoryTitle,
-    installRepoSlug,
-    version,
-    added,
-    changed,
-    removed,
-    filesWritten,
-    filesRemoved,
-    changelogUpdated,
-    readmeUpdated: readme.changed,
-    dryRun,
-    noChanges: !(targetSkillNeedsWrite || changelogUpdated || readme.changed || filesWritten.length > 0 || filesRemoved.length > 0),
-    mode: "local",
+    operations,
+    result: {
+      sourceRoot,
+      repoRoot,
+      targetRoot,
+      targetRelativeRoot,
+      targetName: safeTargetName,
+      targetPreviouslyExisted,
+      skillName: sourceName,
+      displayName,
+      category: categorySlug,
+      categoryTitle,
+      installRepoSlug,
+      version,
+      added,
+      changed,
+      removed,
+      filesWritten,
+      filesRemoved,
+      changelogUpdated,
+      readmeUpdated: readme.changed,
+      dryRun,
+      noChanges: operations.length === 0,
+      mode: "local",
+    },
   };
+}
+
+function applyUploadPlan(plan: UploadPlan): void {
+  if (plan.operations.length === 0) {
+    return;
+  }
+
+  ensureDirectory(plan.result.targetRoot);
+  for (const operation of plan.operations) {
+    if (operation.type === "write") {
+      writeText(operation.targetPath, operation.content);
+      continue;
+    }
+
+    if (operation.type === "copy") {
+      copyFile(operation.sourcePath, operation.targetPath);
+      continue;
+    }
+
+    removePath(operation.targetPath);
+  }
 }
 
 function validateTargetName(value: string): string {
@@ -430,35 +517,21 @@ function fileDigest(filePath: string): string {
   return digest.digest("hex");
 }
 
-function ensureDirectory(directory: string, dryRun: boolean): void {
-  if (!dryRun) {
-    fs.mkdirSync(directory, { recursive: true });
-  }
+function ensureDirectory(directory: string): void {
+  fs.mkdirSync(directory, { recursive: true });
 }
 
-function writeText(filePath: string, content: string, dryRun: boolean): void {
-  if (dryRun) {
-    return;
-  }
-
+function writeText(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
 }
 
-function copyFile(source: string, target: string, dryRun: boolean): void {
-  if (dryRun) {
-    return;
-  }
-
+function copyFile(source: string, target: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.copyFileSync(source, target);
 }
 
-function removePath(target: string, dryRun: boolean): void {
-  if (dryRun) {
-    return;
-  }
-
+function removePath(target: string): void {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
@@ -541,6 +614,7 @@ function updateChangelog(input: {
   changed: string[];
   removed: string[];
   initialRelease: boolean;
+  publicationDate: string;
 }): { content: string; changed: boolean } {
   const header = [
     "# Changelog",
@@ -568,9 +642,9 @@ function buildChangelogEntry(input: {
   changed: string[];
   removed: string[];
   initialRelease: boolean;
+  publicationDate: string;
 }): string {
-  const today = new Date().toISOString().slice(0, 10);
-  const lines = [`## [${input.version}] - ${today}`];
+  const lines = [`## [${input.version}] - ${input.publicationDate}`];
 
   if (input.initialRelease) {
     lines.push("### Added", `- Initial publication of the \`${input.skillName}\` skill in the \`${input.categoryTitle}\` category.`);
@@ -716,4 +790,12 @@ function escapeRegExp(value: string): string {
 
 function ensureTrailingNewline(value: string): string {
   return value.endsWith("\n") ? value : `${value}\n`;
+}
+
+function systemClock(): Date {
+  return new Date();
+}
+
+function formatPublicationDate(clock: () => Date): string {
+  return clock().toISOString().slice(0, 10);
 }
