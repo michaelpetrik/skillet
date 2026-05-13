@@ -124,6 +124,8 @@ STATUS_FILE="$RUN_DIR/status.json"
 PROMPT_FILE="$RUN_DIR/prompt.md"
 QUALITY_STDOUT="$RUN_DIR/quality.stdout"
 QUALITY_STDERR="$RUN_DIR/quality.stderr"
+GIT_STATUS_BEFORE="$RUN_DIR/git-status.before"
+GIT_STATUS_AFTER="$RUN_DIR/git-status.after"
 CODEX_STDOUT="$RUN_DIR/codex-events.jsonl"
 CODEX_STDERR="$RUN_DIR/codex-stderr.log"
 CODEX_FINAL="$RUN_DIR/codex-final.md"
@@ -132,6 +134,12 @@ codex_path="$(command -v codex || true)"
 quality_status="skipped"
 quality_reason="no quality command configured"
 quality_exit=""
+
+if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "$REPO_ROOT" status --short --untracked-files=all >"$GIT_STATUS_BEFORE"
+else
+  printf 'not a git worktree\n' >"$GIT_STATUS_BEFORE"
+fi
 
 if [[ "$RUN_QUALITY" == true && -n "$QUALITY_COMMAND" ]]; then
   quality_status="running"
@@ -158,21 +166,26 @@ fi
   printf 'Required workflow:\n\n'
   printf '1. Read `AGENTS.md` first if it exists.\n'
   printf '2. Read `%s` before planning or claiming completion.\n' "$PLAN_FILE"
-  printf '3. Pick one highest-priority open item that can be advanced safely.\n'
-  printf '4. Make the smallest useful code, test, documentation, or automation change.\n'
-  printf '5. Run the strongest available verification. If blocked, record exact commands and errors.\n'
-  printf '6. Update `%s` only when status actually changes and evidence supports it.\n' "$PLAN_FILE"
-  printf '7. Do not use destructive git commands and do not revert unrelated edits.\n'
-  printf '8. Keep changes scoped to the selected item.\n\n'
-  printf '9. Every smith/worker involved in the run must leave a concise handoff with two checklists:\n'
+  printf '3. Run `git status --short --untracked-files=all` and compare it with `%s` before editing.\n' "$GIT_STATUS_BEFORE"
+  printf '4. If the worktree is dirty before you start, do not begin a new plan item. Verify and commit existing plan-related changes first, or stop as blocked if the dirty paths are unrelated, unsafe, or ambiguous.\n'
+  printf '5. Pick one highest-priority open item that can be advanced safely.\n'
+  printf '6. Make the smallest useful code, test, documentation, or automation change.\n'
+  printf '7. Run the strongest available verification. If blocked, record exact commands and errors.\n'
+  printf '8. Update `%s` only when status actually changes and evidence supports it.\n' "$PLAN_FILE"
+  printf '9. Do not use destructive git commands, do not stash unfinished work, and do not revert unrelated edits.\n'
+  printf '10. Keep changes scoped to the selected item.\n'
+  printf '11. Commit every intended change before final handoff with a concise descriptive message tied to the plan item.\n'
+  printf '12. Confirm `git status --short --untracked-files=all` is clean after the commit. If it is not clean, do not claim completion.\n\n'
+  printf '13. Every smith/worker involved in the run must leave a concise handoff with two checklists:\n'
   printf '   - Done: completed changes and verification evidence.\n'
   printf '   - TODO: remaining work, blockers, and exact next commands.\n\n'
   printf 'Preflight:\n\n'
   printf -- '- Quality status: %s\n' "$quality_status"
   printf -- '- Quality reason: %s\n' "$quality_reason"
   printf -- '- Codex: %s\n' "${codex_path:-not found}"
-  printf -- '- Run artifacts: `%s`\n\n' "$RUN_DIR"
-  printf 'Final answer must include changed files, verification results, next blocker, and the smith checklist.\n'
+  printf -- '- Run artifacts: `%s`\n' "$RUN_DIR"
+  printf -- '- Initial git status artifact: `%s`\n\n' "$GIT_STATUS_BEFORE"
+  printf 'Final answer must include changed files, verification results, final clean worktree evidence, next blocker, and the smith checklist.\n'
 } >"$PROMPT_FILE"
 
 {
@@ -187,7 +200,9 @@ fi
   printf '  "quality_command": "%s",\n' "$(json_escape "$QUALITY_COMMAND")"
   printf '  "quality_status": "%s",\n' "$(json_escape "$quality_status")"
   printf '  "quality_reason": "%s",\n' "$(json_escape "$quality_reason")"
-  printf '  "quality_exit": "%s"\n' "$(json_escape "$quality_exit")"
+  printf '  "quality_exit": "%s",\n' "$(json_escape "$quality_exit")"
+  printf '  "git_status_before": "%s",\n' "$(json_escape "$GIT_STATUS_BEFORE")"
+  printf '  "git_status_after": "%s"\n' "$(json_escape "$GIT_STATUS_AFTER")"
   printf '}\n'
 } >"$STATUS_FILE"
 
@@ -230,4 +245,20 @@ if [[ -n "$MODEL" ]]; then
 fi
 codex_args+=(--json -o "$CODEX_FINAL" -)
 
-exec codex "${codex_args[@]}" <"$PROMPT_FILE" >>"$CODEX_STDOUT" 2>>"$CODEX_STDERR"
+set +e
+codex "${codex_args[@]}" <"$PROMPT_FILE" >>"$CODEX_STDOUT" 2>>"$CODEX_STDERR"
+codex_exit="$?"
+set -e
+
+if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "$REPO_ROOT" status --short --untracked-files=all >"$GIT_STATUS_AFTER"
+else
+  printf 'not a git worktree\n' >"$GIT_STATUS_AFTER"
+fi
+
+if [[ -s "$GIT_STATUS_AFTER" ]]; then
+  printf 'Ralph worker left uncommitted changes; see %s\n' "$GIT_STATUS_AFTER" >&2
+  exit 3
+fi
+
+exit "$codex_exit"

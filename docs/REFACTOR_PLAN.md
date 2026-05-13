@@ -1,6 +1,6 @@
 # Skillet Refactor Plan
 
-Last reviewed: 2026-05-13
+Last reviewed: 2026-05-14
 
 ## Goal
 
@@ -45,11 +45,11 @@ A backlog item is not complete unless its evidence column is satisfied by a loca
 - No `npm test` script exists.
 - No repo-owned quality script, hook installer, diff-aware secret scan, static security lint, or local security review entrypoint exists.
 - No `packageManager`, `.nvmrc`, `.node-version`, Volta, or mise runtime pin exists beyond `engines.node >=20`.
-- `src/cli.ts` currently owns parsing, command dispatch, output, upgrade planning, and process execution.
-- `src/upload.ts` currently owns planning, rendering, filesystem writes, Git operations, clock access, and temp cleanup.
+- `src/cli.ts` currently owns parsing and output; command dispatch, help selection, option validation, list/check/install/upgrade planning, and skills-add process execution now use dedicated helpers.
+- `src/upload.ts` currently owns planning, rendering, filesystem writes, clock access, and temp cleanup; Git operations now run through an injectable command runner seam.
 - The unscoped npm name `skillet` is already taken by an unrelated package.
 - `CLAUDE.md` exists as a regular file even though `AGENTS.md` is canonical.
-- Repo-owned Ralph scripts and resolver prompt exist, `bash -n` passes for them, a supervised Ralph preflight with `scripts/ci/run_quality_gates.sh` passed, a supervised `--execute` worker run passed, and the cron watchdog is installed.
+- Repo-owned Ralph scripts and resolver prompt exist, `bash -n` passes for them, a supervised Ralph preflight with `scripts/ci/run_quality_gates.sh` passed, a supervised `--execute` worker run passed, the cron watchdog is installed, and Ralph now treats a clean committed worktree as a hard handoff requirement.
 
 ## Target Shape
 
@@ -74,9 +74,9 @@ Minimum viable direction:
 | R2 | [x] | Skills index | Sync `skills/README.md` with all `skills/**/SKILL.md` entries. | 2026-05-13: `find skills -path '*/SKILL.md'` and README link extraction both report the same 9 skill directories. | Keep future skill additions reflected in `skills/README.md`. |
 | R3 | [x] | Tests | Add a minimal test harness and pure characterization tests for version policy, frontmatter behavior, and upload target validation scaffolding. | 2026-05-13: `npm test` passed with 9 Node test-runner tests covering `domain` version policy and `frontmatter`, including CRLF delimiter parsing. | Add tests first for any future behavior move. |
 | R4 | [x] | CLI safety | Reject unknown long CLI options before side effects. | 2026-05-13: `npm test` covers `list --dryrun` non-zero, flag value rejection, and `list --help` success; 12 tests passed. | Keep behavior explicit for aliases and help. |
-| R5 | [ ] | CLI design | Define and implement a small command metadata/option schema only if it removes real duplication. | Help, dispatch, and option validation share one source of truth. | Do not start before R3 passes; avoid wrapping the current switch in needless abstraction. |
-| R6 | [ ] | CLI use cases | Extract list/check/install/upgrade planning from presentation and process execution. | Unit tests can exercise planning without spawning `npx` or `bunx`. | Do not start before R3 passes; keep command files thin. |
-| R7 | [ ] | Process seams | Introduce a command runner seam for `npx`, `bunx`, and Git operations. | Tests simulate success/failure without executing real commands; command arrays are passed without shell interpolation. | Preserve argument-vector execution. |
+| R5 | [x] | CLI design | Define and implement a small command metadata/option schema only if it removes real duplication. | 2026-05-13: `npm test` passed 15 tests covering alias help and metadata-backed option parsing; `scripts/ci/run_quality_gates.sh` passed secret scan, typecheck, build, tests, CLI smokes, npm pack dry-run, and `sentrux check .`, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing. | Add future commands/options through the CLI metadata table so help, dispatch, and option validation stay aligned. |
+| R6 | [x] | CLI use cases | Extract list/check/install/upgrade planning from presentation and process execution. | 2026-05-13: `src/cli-use-cases.ts` exports pure list/check/install/upgrade planners; `npm test` passed 19 tests including `test/cli-use-cases.test.mjs`; `scripts/ci/run_quality_gates.sh` passed secret scan, typecheck, build, tests, CLI smokes, npm pack dry-run, and `sentrux check .`, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing. | Keep future CLI use-case decisions in application helpers; R7 should introduce the runner seam without reintroducing spawnable planning into `src/cli.ts`. |
+| R7 | [x] | Process seams | Introduce a command runner seam for `npx`, `bunx`, and Git operations. | 2026-05-14: `src/command-runner.ts` exposes an injectable command runner, skills-add command builder, and Git runner; `test/command-runner.test.mjs` simulates `npx`/`bunx`/Git success and failure and asserts raw argument arrays; `npm test` passed 25 tests; `scripts/ci/run_quality_gates.sh` passed secret scan, typecheck, build, tests, CLI smokes, npm pack dry-run, and `sentrux check .`, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing. | Keep future process execution behind `CommandRunner`; R8 should focus target path validation before mutations. |
 | R8 | [ ] | Upload safety | Validate `targetName` and canonicalize target paths before any write, delete, Git add, or dry-run report. | Empty, dot, absolute, traversal, newline, and control-character fixtures fail before dry-run or live mutations; canonical targets remain under the skills root. | Apply equivalent fix to the legacy publisher script or remove it from the npm artifact; review write/delete/Git-add ordering. |
 | R9 | [ ] | Upload planner | Split upload into pure planning plus side-effect application. | Dry-run and live mode derive from the same plan; `CHANGELOG.md` is not duplicated. | Inject date/clock. |
 | R10 | [ ] | File discovery | Share skill file constants and discovery helpers without building a generic framework. | Duplicate `findSkillFiles` logic is reduced and traversal semantics remain explicit. | Preserve installed vs catalog traversal differences. |
@@ -86,7 +86,7 @@ Minimum viable direction:
 | R14 | [~] | Quality gates | Add a repo-owned quality script for typecheck, build, tests, pack dry-run, secret scan, and Sentrux when configured. | `scripts/ci/run_quality_gates.sh` exists and now runs secret scan, typecheck, build, `npm test`, CLI smokes, pack dry-run, and Sentrux check; final completion waits for reviewed `.sentrux/baseline.json` so `sentrux gate .` can run. | Keep pre-commit fast; secret scan must run before broader gates in hook/preflight paths; full pack gate belongs in push/CI/release. |
 | R15 | [ ] | Secret scan | Add a repo-owned diff-aware secret scan and local security review entrypoint before broader quality gates. | Staged fake secret fixtures fail; `.env`, `.pem`, `.key`, and `.p12` files are blocked; current repo passes; output redacts values. | Do not print secret values; classify live registry/advisory checks as partial if they need network access. |
 | R16 | [ ] | Packaging smoke | Verify package artifact from a clean build. | `npm pack --dry-run` shows intended files only, and a temp install smoke runs the packaged bin help/list paths after R13 is resolved. | Confirm no local junk ships. |
-| R17 | [x] | Ralph loop | Verify the repo-owned Ralph checklist runner, watchdog, cron installer, and resolver prompt bound to this plan. | Ralph files exist; `bash -n` passes; non-execute preflight wrote `var/dev/ralph-checklist/runs/20260513T190455Z-T-2026-05-13-ralph-dev/status.json`; supervised `--execute` worker run wrote `var/dev/ralph-checklist/runs/20260513T200146Z-T-2026-05-13-ralph-dev/codex-final.md`; `scripts/automation/install_ralph_checklist_watchdog_cron.sh` installed two tagged crontab entries and a second run reported already up to date. | Cron can be disabled by setting `RALPH_WATCHDOG_ENABLED=false` in `var/automation/skillet-ralph-refactor-watchdog/watchdog.env`; keep `.sentrux/baseline.json` and broader refactor work as separate reviewed items. |
+| R17 | [x] | Ralph loop | Verify the repo-owned Ralph checklist runner, watchdog, cron installer, and resolver prompt bound to this plan. | Ralph files exist; `bash -n` passes; non-execute preflight wrote `var/dev/ralph-checklist/runs/20260513T190455Z-T-2026-05-13-ralph-dev/status.json`; supervised `--execute` worker run wrote `var/dev/ralph-checklist/runs/20260513T200146Z-T-2026-05-13-ralph-dev/codex-final.md`; `scripts/automation/install_ralph_checklist_watchdog_cron.sh` installed two tagged crontab entries and a second run reported already up to date; 2026-05-14 worktree hygiene rules require Ralph to commit intended changes and leave clean status. | Cron can be disabled by setting `RALPH_WATCHDOG_ENABLED=false` in `var/automation/skillet-ralph-refactor-watchdog/watchdog.env`; dirty worktree blocks unattended spawn unless `RALPH_WATCHDOG_ALLOW_DIRTY_WORKTREE=true` is explicitly set; keep `.sentrux/baseline.json` and broader refactor work as separate reviewed items. |
 
 ## Evidence Log
 
@@ -101,6 +101,10 @@ Minimum viable direction:
 - 2026-05-13: Main thread completed R2 by adding `enforce-offline-gates` and `google-ai-studio-export-standardizer` to `skills/README.md`.
 - 2026-05-13: Main thread completed R3 by adding `npm test` with Node's built-in test runner plus `test/domain.test.mjs` and `test/frontmatter.test.mjs`; `npm test` passed 9 tests.
 - 2026-05-13: Main thread completed R4 by rejecting unknown long CLI flags and flag values; `npm test` passed 12 tests including CLI option behavior.
+- 2026-05-13: Watchdog worker completed R5 by replacing duplicate CLI command/help/option switches with a small metadata table in `src/cli.ts`; `npm test` passed 15 tests and `scripts/ci/run_quality_gates.sh` passed, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing.
+- 2026-05-13: Watchdog worker completed R6 by moving list/check/install/upgrade planning into `src/cli-use-cases.ts` and adding `test/cli-use-cases.test.mjs`; `npm test` passed 19 tests and `scripts/ci/run_quality_gates.sh` passed, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing.
+- 2026-05-14: Watchdog worker completed R7 by adding `src/command-runner.ts`, routing `skills add` and upload Git calls through the injectable runner seam, and adding `test/command-runner.test.mjs`; `npm test` passed 25 tests and `scripts/ci/run_quality_gates.sh` passed, with `sentrux gate` skipped because `.sentrux/baseline.json` is missing.
+- 2026-05-14: Main thread tightened Ralph worktree hygiene in `AGENTS.md`, `prompts/ralph-checklist-resolver.md`, `scripts/dev/ralph_checklist.sh`, `scripts/automation/ralph_checklist_watchdog.sh`, and Ralph docs: workers must commit intended changes before handoff, wrapper records `git-status.before` and `git-status.after`, and unattended watchdog spawn is blocked on dirty worktree.
 
 ## Deferred Or Blocked
 

@@ -18,7 +18,9 @@ This repo owns a cron-driven watchdog that keeps work moving on `docs/REFACTOR_P
 
 Each run uses an explicit `PATH`, takes a non-blocking `flock`, scans `/proc` for `codex` or `claude` processes whose cwd or command line points at this repository, and records health.
 
-If no repo agent is active, it writes an incident artifact and starts `scripts/dev/ralph_checklist.sh --execute`. For watchdog-owned runs, it checks whether run artifacts grow during the probe interval. If output stalls, it may start recovery after the cooldown.
+If no repo agent is active, it checks the Git worktree before spawning. A dirty worktree blocks unattended recovery, writes `worktree-status.txt`, and records an incident instead of starting a new worker on top of uncommitted changes.
+
+When the worktree is clean, it writes an incident artifact and starts `scripts/dev/ralph_checklist.sh --execute`. For watchdog-owned runs, it checks whether run artifacts grow during the probe interval. If output stalls, it may start recovery after the cooldown.
 
 ## Operator Commands
 

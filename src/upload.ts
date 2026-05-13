@@ -2,13 +2,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import {
   DEFAULT_INSTALL_REPO,
   choosePublicationVersion,
   normalizeCategorySlug,
   slugToTitle,
 } from "./domain.js";
+import { CommandRunner, runGitCommand } from "./command-runner.js";
 import {
   buildDocument,
   canonicalSkillText,
@@ -34,6 +34,7 @@ export interface UploadOptions {
   targetName?: string;
   dryRun: boolean;
   keepTemp: boolean;
+  commandRunner?: CommandRunner;
 }
 
 export interface UploadResult {
@@ -93,17 +94,18 @@ export function uploadSkill(options: UploadOptions): UploadResult {
   let installRepoSlug: string;
   let mode: "local" | "remote";
   let remoteSlug: string | undefined;
+  const commandRunner = options.commandRunner;
 
   if (options.remote) {
     remoteSlug = options.remote;
-    const checkout = prepareRemoteCheckout(remoteSlug, options.remoteUrl, options.branch);
+    const checkout = prepareRemoteCheckout(remoteSlug, options.remoteUrl, options.branch, commandRunner);
     tempParent = checkout.tempParent;
     repoRoot = checkout.repoRoot;
     installRepoSlug = remoteSlug;
     mode = "remote";
   } else {
     repoRoot = resolvePath(options.repo || process.cwd());
-    installRepoSlug = resolveInstallRepoSlug(repoRoot);
+    installRepoSlug = resolveInstallRepoSlug(repoRoot, commandRunner);
     mode = "local";
   }
 
@@ -131,6 +133,7 @@ export function uploadSkill(options: UploadOptions): UploadResult {
           result,
           options.branch,
           buildCommitMessage(result, options.commitMessage),
+          commandRunner,
         );
         Object.assign(result, pushResult);
       } else {
@@ -555,8 +558,12 @@ function buildChangelogEntry(input: {
   return `${lines.join("\n")}\n`;
 }
 
-function resolveInstallRepoSlug(repoRoot: string): string {
-  const result = runGit(["remote", "get-url", "origin"], repoRoot, false);
+function resolveInstallRepoSlug(repoRoot: string, commandRunner: CommandRunner | undefined): string {
+  const result = runGitCommand(["remote", "get-url", "origin"], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: false,
+  });
   if (!result.ok) {
     return DEFAULT_INSTALL_REPO;
   }
@@ -577,11 +584,20 @@ function resolveInstallRepoSlug(repoRoot: string): string {
   return DEFAULT_INSTALL_REPO;
 }
 
-function prepareRemoteCheckout(remoteSlug: string, remoteUrl: string | undefined, branch: string): { repoRoot: string; tempParent: string } {
+function prepareRemoteCheckout(
+  remoteSlug: string,
+  remoteUrl: string | undefined,
+  branch: string,
+  commandRunner: CommandRunner | undefined,
+): { repoRoot: string; tempParent: string } {
   const tempParent = fs.mkdtempSync(path.join(os.tmpdir(), "skillet-upload-"));
   const repoRoot = path.join(tempParent, "repo");
   const cloneUrl = remoteUrl || `https://github.com/${remoteSlug}.git`;
-  runGit(["clone", "--depth", "1", "--branch", branch, cloneUrl, repoRoot], tempParent, true);
+  runGitCommand(["clone", "--depth", "1", "--branch", branch, cloneUrl, repoRoot], {
+    cwd: tempParent,
+    commandRunner,
+    throwOnError: true,
+  });
   return { repoRoot, tempParent };
 }
 
@@ -599,10 +615,19 @@ function commitAndPushRemoteCheckout(
   result: UploadResult,
   branch: string,
   commitMessage: string,
+  commandRunner: CommandRunner | undefined,
 ): Partial<UploadResult> {
   const trackedPaths = [README_RELATIVE_PATH.split(path.sep).join("/"), result.targetRelativeRoot];
-  runGit(["add", "-A", ...trackedPaths], repoRoot, true);
-  const status = runGit(["status", "--short", "--", ...trackedPaths], repoRoot, true).stdout.trim();
+  runGitCommand(["add", "-A", ...trackedPaths], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: true,
+  });
+  const status = runGitCommand(["status", "--short", "--", ...trackedPaths], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: true,
+  }).stdout.trim();
 
   if (!status) {
     return {
@@ -613,9 +638,21 @@ function commitAndPushRemoteCheckout(
     };
   }
 
-  runGit(["commit", "-m", commitMessage], repoRoot, true);
-  const commitSha = runGit(["rev-parse", "HEAD"], repoRoot, true).stdout.trim();
-  runGit(["push", "origin", branch], repoRoot, true);
+  runGitCommand(["commit", "-m", commitMessage], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: true,
+  });
+  const commitSha = runGitCommand(["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: true,
+  }).stdout.trim();
+  runGitCommand(["push", "origin", branch], {
+    cwd: repoRoot,
+    commandRunner,
+    throwOnError: true,
+  });
 
   return {
     pushed: true,
@@ -623,34 +660,6 @@ function commitAndPushRemoteCheckout(
     commitSha,
     gitStatus: status,
   };
-}
-
-function runGit(args: string[], cwd: string, throwOnError: true): { ok: true; stdout: string; stderr: string };
-function runGit(args: string[], cwd: string, throwOnError: false): { ok: boolean; stdout: string; stderr: string };
-function runGit(args: string[], cwd: string, throwOnError: boolean): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-  });
-
-  const ok = result.status === 0;
-  const stdout = result.stdout || "";
-  const stderr = result.stderr || "";
-
-  if (!ok && throwOnError) {
-    throw new Error(
-      [
-        `git command failed: git ${args.join(" ")}`,
-        `cwd: ${cwd}`,
-        stdout ? `stdout:\n${stdout}` : undefined,
-        stderr ? `stderr:\n${stderr}` : undefined,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-  }
-
-  return { ok, stdout, stderr };
 }
 
 function escapeRegExp(value: string): string {

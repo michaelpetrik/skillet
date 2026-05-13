@@ -16,4 +16,7 @@ This file contains project-level instructions for AI agents.
 - Record evidence as exact commands, file paths, runtime artifact paths, or observed error output.
 - Use repo-owned scripts and prompts before ad hoc command chains when an entrypoint exists.
 - For Ralph work, prefer `scripts/dev/ralph_checklist.sh`, `scripts/automation/ralph_checklist_watchdog.sh`, and `prompts/ralph-checklist-resolver.md`.
+- Worktree hygiene is a hard requirement for Ralph work. Start by recording `git status --short --untracked-files=all`; do not begin a new plan item on top of unrelated dirty state.
+- Ralph workers must not leave uncommitted changes. Before final handoff, run verification, commit all intended changes with a descriptive message, and confirm `git status --short --untracked-files=all` is clean.
+- If Ralph cannot verify and commit its changes, it must restore only its own edits or stop as blocked with exact evidence; it must not hide changes in stash or leave untracked files behind.
 - Every worker handoff or final response must include `Done` and `TODO` checklists.

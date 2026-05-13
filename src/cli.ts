@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import {
   DEFAULT_INSTALL_REPO,
-  InstalledScope,
   QueryScope,
   Runner,
   Skill,
-  VersionDiff,
-  compareInstalledVersion,
-  formatCommand,
 } from "./domain.js";
-import { findCatalogSkill, loadCatalogSkills } from "./catalog.js";
-import { InstalledSkillsByScope, loadInstalledSkills } from "./installations.js";
+import { loadCatalogSkills } from "./catalog.js";
+import {
+  buildCheckPlan,
+  buildListRows,
+  buildUpgradePlans,
+  resolveInstallTargets,
+} from "./cli-use-cases.js";
+import { loadInstalledSkills } from "./installations.js";
 import {
   resolveCatalogRoot,
   resolveGlobalSkillsRoot,
@@ -20,6 +21,7 @@ import {
 } from "./paths.js";
 import { renderTable } from "./table.js";
 import { UploadResult, uploadSkill } from "./upload.js";
+import { runSkillsAddCommand } from "./command-runner.js";
 
 interface ParsedArgs {
   command: string | undefined;
@@ -27,77 +29,68 @@ interface ParsedArgs {
   options: Map<string, string | boolean>;
 }
 
-interface ScopeStatus {
-  scope: InstalledScope;
-  version: string;
-  state: VersionDiff["state"];
-  diff: string;
-  path?: string;
+type OptionKind = "boolean" | "value";
+
+interface CliOption {
+  name: string;
+  kind: OptionKind;
+  short?: string;
 }
 
-const VALUE_OPTIONS = new Set([
-  "branch",
-  "catalog",
-  "category",
-  "commit-message",
-  "global-dir",
-  "project",
-  "remote",
-  "remote-url",
-  "repo",
-  "runner",
-  "scope",
-  "target-name",
-]);
-const BOOLEAN_OPTIONS = new Set([
-  "dry-run",
-  "force",
-  "global",
-  "help",
-  "include-missing",
-  "json",
-  "keep-temp",
-  "project-only",
-  "yes",
-]);
+interface CommandSpec {
+  name: string;
+  aliases: string[];
+  description: string;
+  help: () => string;
+  handler: (parsed: ParsedArgs) => void;
+  options: readonly CliOption[];
+}
+
+const HELP_OPTION: CliOption = { name: "help", kind: "boolean", short: "h" };
+const CATALOG_OPTION: CliOption = { name: "catalog", kind: "value" };
+const PROJECT_OPTION: CliOption = { name: "project", kind: "value" };
+const GLOBAL_DIR_OPTION: CliOption = { name: "global-dir", kind: "value" };
+const GLOBAL_SCOPE_OPTION: CliOption = { name: "global", kind: "boolean", short: "g" };
+const YES_OPTION: CliOption = { name: "yes", kind: "boolean", short: "y" };
+const SCOPE_OPTION: CliOption = { name: "scope", kind: "value" };
+const JSON_OPTION: CliOption = { name: "json", kind: "boolean" };
+const INCLUDE_MISSING_OPTION: CliOption = { name: "include-missing", kind: "boolean" };
+const RUNNER_OPTION: CliOption = { name: "runner", kind: "value" };
+const REPO_OPTION: CliOption = { name: "repo", kind: "value" };
+const DRY_RUN_OPTION: CliOption = { name: "dry-run", kind: "boolean" };
+const FORCE_OPTION: CliOption = { name: "force", kind: "boolean" };
+const PROJECT_ONLY_OPTION: CliOption = { name: "project-only", kind: "boolean" };
+const REMOTE_OPTION: CliOption = { name: "remote", kind: "value" };
+const REMOTE_URL_OPTION: CliOption = { name: "remote-url", kind: "value" };
+const BRANCH_OPTION: CliOption = { name: "branch", kind: "value" };
+const COMMIT_MESSAGE_OPTION: CliOption = { name: "commit-message", kind: "value" };
+const TARGET_NAME_OPTION: CliOption = { name: "target-name", kind: "value" };
+const CATEGORY_OPTION: CliOption = { name: "category", kind: "value" };
+const KEEP_TEMP_OPTION: CliOption = { name: "keep-temp", kind: "boolean" };
+
+const GLOBAL_OPTIONS: readonly CliOption[] = [
+  HELP_OPTION,
+  CATALOG_OPTION,
+  PROJECT_OPTION,
+  GLOBAL_DIR_OPTION,
+  YES_OPTION,
+];
 
 function main(): void {
   try {
     const parsed = parseArgs(process.argv.slice(2));
 
-    if (!parsed.command || parsed.options.get("help") === true || parsed.options.get("h") === true) {
+    if (!parsed.command || boolOption(parsed, "help")) {
       printHelp(parsed.command);
       return;
     }
 
-    if (parsed.command === "help") {
-      printHelp(parsed.positionals[0]);
-      return;
+    const command = findCommandSpec(parsed.command);
+    if (!command) {
+      throw new Error(`Unknown command: ${parsed.command}. Run "skillet --help" for usage.`);
     }
 
-    switch (parsed.command) {
-      case "list":
-      case "ls":
-        commandList(parsed);
-        return;
-      case "check":
-      case "update":
-        commandCheck(parsed);
-        return;
-      case "install":
-      case "add":
-        commandInstall(parsed);
-        return;
-      case "upgrade":
-        commandUpgrade(parsed);
-        return;
-      case "upload":
-      case "publish":
-        commandUpload(parsed);
-        return;
-      default:
-        throw new Error(`Unknown command: ${parsed.command}. Run "skillet --help" for usage.`);
-    }
+    command.handler(parsed);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${message}`);
@@ -125,50 +118,46 @@ function parseArgs(argv: string[]): ParsedArgs {
         continue;
       }
 
+      const option = LONG_OPTIONS.get(key);
       if (equalsIndex !== -1) {
-        if (BOOLEAN_OPTIONS.has(key)) {
-          throw new Error(`Option --${key} does not accept a value.`);
-        }
-        if (!VALUE_OPTIONS.has(key)) {
+        if (!option) {
           throw new Error(`Unknown option: --${key}.`);
         }
-        options.set(key, arg.slice(equalsIndex + 1));
+        if (option.kind === "boolean") {
+          throw new Error(`Option --${key} does not accept a value.`);
+        }
+        options.set(option.name, arg.slice(equalsIndex + 1));
         continue;
       }
 
-      if (VALUE_OPTIONS.has(key)) {
+      if (!option) {
+        throw new Error(`Unknown option: --${key}.`);
+      }
+
+      if (option.kind === "value") {
         const value = argv[index + 1];
         if (!value || value.startsWith("-")) {
           throw new Error(`Missing value for --${key}.`);
         }
-        options.set(key, value);
+        options.set(option.name, value);
         index += 1;
         continue;
       }
 
-      if (!BOOLEAN_OPTIONS.has(key)) {
-        throw new Error(`Unknown option: --${key}.`);
-      }
-
-      options.set(key, true);
+      options.set(option.name, true);
       continue;
     }
 
     if (arg.startsWith("-") && arg.length > 1) {
       for (const flag of arg.slice(1)) {
-        switch (flag) {
-          case "g":
-            options.set("global", true);
-            break;
-          case "h":
-            options.set("help", true);
-            break;
-          case "y":
-            options.set("yes", true);
-            break;
-          default:
-            throw new Error(`Unknown short option: -${flag}.`);
+        const option = SHORT_OPTIONS.get(flag);
+        if (!option) {
+          throw new Error(`Unknown short option: -${flag}.`);
         }
+        if (option.kind === "value") {
+          throw new Error(`Short option -${flag} requires long form --${option.name}.`);
+        }
+        options.set(option.name, true);
       }
       continue;
     }
@@ -187,7 +176,7 @@ function commandList(parsed: ParsedArgs): void {
   const context = loadContext(parsed);
   const scope = parseScope(stringOption(parsed, "scope") || (boolOption(parsed, "global") ? "global" : "both"));
   const installed = loadInstalledSkills(scope, context.installationRoots);
-  const rows = context.catalog.map((skill) => buildListRow(skill, installed, scope));
+  const rows = buildListRows(context.catalog, installed, scope);
 
   if (boolOption(parsed, "json")) {
     printJson(rows);
@@ -215,56 +204,42 @@ function commandCheck(parsed: ParsedArgs): void {
   const context = loadContext(parsed);
   const scope = parseScope(stringOption(parsed, "scope") || (boolOption(parsed, "global") ? "global" : "both"));
   const installed = loadInstalledSkills(scope, context.installationRoots);
-  const rows = context.catalog.map((skill) => buildListRow(skill, installed, scope));
-  const installedRows = rows.filter((row) => row.project.state !== "missing" || row.global.state !== "missing");
-  const upgradeRows = installedRows.filter(
-    (row) => isUpgradeAvailable(row.project.state) || isUpgradeAvailable(row.global.state),
-  );
-  const unknownRows = installedRows.filter((row) => row.project.state === "unknown" || row.global.state === "unknown");
-  const newerRows = installedRows.filter((row) => row.project.state === "newer" || row.global.state === "newer");
-  const missingRows = boolOption(parsed, "include-missing")
-    ? rows.filter((row) => row.project.state === "missing" && row.global.state === "missing")
-    : [];
+  const rows = buildListRows(context.catalog, installed, scope);
+  const plan = buildCheckPlan(rows, boolOption(parsed, "include-missing"));
 
   if (boolOption(parsed, "json")) {
-    printJson({
-      checked: installedRows.length,
-      upgrades: upgradeRows,
-      unknown: unknownRows,
-      newer: newerRows,
-      missing: missingRows,
-    });
+    printJson(plan);
     return;
   }
 
-  if (installedRows.length === 0) {
+  if (plan.checked === 0) {
     console.log("No installed Skillet skills found in the selected .agents scope.");
     return;
   }
 
-  if (upgradeRows.length === 0 && unknownRows.length === 0) {
-    console.log(`All installed Skillet skills are current. Checked ${installedRows.length} skill(s).`);
+  if (plan.upgrades.length === 0 && plan.unknown.length === 0) {
+    console.log(`All installed Skillet skills are current. Checked ${plan.checked} skill(s).`);
   } else {
     console.log("Skillet skill upgrades are available:");
-    console.log(renderTable([["Skill", "Project", "Global"], ...upgradeRows.map((row) => [row.name, row.project.diff, row.global.diff])]));
+    console.log(renderTable([["Skill", "Project", "Global"], ...plan.upgrades.map((row) => [row.name, row.project.diff, row.global.diff])]));
   }
 
-  if (unknownRows.length > 0) {
+  if (plan.unknown.length > 0) {
     console.log("");
     console.log("Installed skills with unknown versions:");
-    console.log(renderTable([["Skill", "Project", "Global"], ...unknownRows.map((row) => [row.name, row.project.diff, row.global.diff])]));
+    console.log(renderTable([["Skill", "Project", "Global"], ...plan.unknown.map((row) => [row.name, row.project.diff, row.global.diff])]));
   }
 
-  if (newerRows.length > 0) {
+  if (plan.newer.length > 0) {
     console.log("");
     console.log("Installed skills newer than this catalog:");
-    console.log(renderTable([["Skill", "Project", "Global"], ...newerRows.map((row) => [row.name, row.project.diff, row.global.diff])]));
+    console.log(renderTable([["Skill", "Project", "Global"], ...plan.newer.map((row) => [row.name, row.project.diff, row.global.diff])]));
   }
 
-  if (missingRows.length > 0) {
+  if (plan.missing.length > 0) {
     console.log("");
     console.log("Catalog skills not installed:");
-    console.log(renderTable([["Skill", "Catalog"], ...missingRows.map((row) => [row.name, row.catalogVersion])]));
+    console.log(renderTable([["Skill", "Catalog"], ...plan.missing.map((row) => [row.name, row.catalogVersion])]));
   }
 }
 
@@ -277,7 +252,7 @@ function commandInstall(parsed: ParsedArgs): void {
   const targets = resolveInstallTargets(parsed.positionals, context.catalog);
 
   for (const target of targets) {
-    runSkillsAdd({ runner, repo, skillName: target.name, global, dryRun });
+    runSkillsAddCommand({ runner, repo, skillName: target.name, global, dryRun });
   }
 }
 
@@ -289,10 +264,13 @@ function commandUpgrade(parsed: ParsedArgs): void {
   const force = boolOption(parsed, "force");
   const scope = parseUpgradeScope(parsed);
   const installed = loadInstalledSkills(scope, context.installationRoots);
-  const targets = parsed.positionals.filter((value) => value !== "all");
-  const plans = targets.length > 0
-    ? buildExplicitUpgradePlans(targets, context.catalog, installed, scope, force)
-    : buildDetectedUpgradePlans(context.catalog, installed, scope, force);
+  const plans = buildUpgradePlans({
+    positionals: parsed.positionals,
+    catalog: context.catalog,
+    installed,
+    scope,
+    force,
+  });
 
   if (plans.length === 0) {
     console.log("No Skillet skill upgrades are available in the selected .agents scope.");
@@ -300,7 +278,7 @@ function commandUpgrade(parsed: ParsedArgs): void {
   }
 
   for (const plan of plans) {
-    runSkillsAdd({ runner, repo, skillName: plan.skill.name, global: plan.scope === "global", dryRun });
+    runSkillsAddCommand({ runner, repo, skillName: plan.skill.name, global: plan.scope === "global", dryRun });
   }
 }
 
@@ -331,6 +309,10 @@ function commandUpload(parsed: ParsedArgs): void {
   printUploadResult(result);
 }
 
+function commandHelp(parsed: ParsedArgs): void {
+  printHelp(parsed.positionals[0]);
+}
+
 function loadContext(parsed: ParsedArgs): {
   catalogRoot: string;
   catalog: Skill[];
@@ -347,159 +329,6 @@ function loadContext(parsed: ParsedArgs): {
       global: globalRoot,
     },
   };
-}
-
-function buildListRow(skill: Skill, installed: InstalledSkillsByScope, scope: QueryScope): {
-  name: string;
-  category: string;
-  catalogVersion: string;
-  project: ScopeStatus;
-  global: ScopeStatus;
-  diff: string;
-} {
-  const project = buildScopeStatus("project", skill, scope === "global" ? undefined : installed.project.get(skill.name));
-  const global = buildScopeStatus("global", skill, scope === "project" ? undefined : installed.global.get(skill.name));
-  const diffs = [project, global]
-    .filter((status) => status.state !== "missing" && status.state !== "current")
-    .map((status) => `${status.scope} ${status.diff}`);
-  const installedCurrent = [project, global].some((status) => status.state === "current");
-
-  return {
-    name: skill.name,
-    category: skill.category,
-    catalogVersion: skill.version,
-    project,
-    global,
-    diff: diffs.length > 0 ? diffs.join("; ") : installedCurrent ? "current" : "not installed",
-  };
-}
-
-function buildScopeStatus(scope: InstalledScope, skill: Skill, installed: { version?: string; path?: string } | undefined): ScopeStatus {
-  if (!installed) {
-    return {
-      scope,
-      version: "missing",
-      state: "missing",
-      diff: "missing",
-    };
-  }
-
-  const diff = compareInstalledVersion(skill.version, installed.version);
-  return {
-    scope,
-    version: installed.version || "unknown",
-    state: diff.state,
-    diff: diff.label,
-    path: installed.path,
-  };
-}
-
-function resolveInstallTargets(positionals: string[], catalog: Skill[]): Skill[] {
-  if (positionals.length === 0) {
-    throw new Error("install requires a skill name or all. Run \"skillet install --help\" for usage.");
-  }
-
-  if (positionals.includes("all")) {
-    return catalog;
-  }
-
-  return positionals.map((name) => {
-    const skill = findCatalogSkill(catalog, name);
-    if (!skill) {
-      throw new Error(`Unknown Skillet skill: ${name}`);
-    }
-    return skill;
-  });
-}
-
-function buildDetectedUpgradePlans(
-  catalog: Skill[],
-  installed: InstalledSkillsByScope,
-  scope: QueryScope,
-  force: boolean,
-): Array<{ skill: Skill; scope: InstalledScope }> {
-  const plans: Array<{ skill: Skill; scope: InstalledScope }> = [];
-  for (const skill of catalog) {
-    for (const installedScope of selectedScopes(scope)) {
-      const installedSkill = installed[installedScope].get(skill.name);
-      if (!installedSkill) {
-        continue;
-      }
-
-      const state = compareInstalledVersion(skill.version, installedSkill.version).state;
-      if (force || isUpgradeable(state)) {
-        plans.push({ skill, scope: installedScope });
-      }
-    }
-  }
-
-  return plans;
-}
-
-function buildExplicitUpgradePlans(
-  targets: string[],
-  catalog: Skill[],
-  installed: InstalledSkillsByScope,
-  scope: QueryScope,
-  force: boolean,
-): Array<{ skill: Skill; scope: InstalledScope }> {
-  const plans: Array<{ skill: Skill; scope: InstalledScope }> = [];
-
-  for (const target of targets) {
-    const skill = findCatalogSkill(catalog, target);
-    if (!skill) {
-      throw new Error(`Unknown Skillet skill: ${target}`);
-    }
-
-    const scopes = selectedScopes(scope);
-    const installedScopes = scopes.filter((installedScope) => installed[installedScope].has(skill.name));
-    const targetScopes: InstalledScope[] = installedScopes.length > 0 ? installedScopes : [scope === "global" ? "global" : "project"];
-
-    for (const targetScope of targetScopes) {
-      const installedSkill = installed[targetScope].get(skill.name);
-      const state = installedSkill ? compareInstalledVersion(skill.version, installedSkill.version).state : "missing";
-      if (force || state === "missing" || isUpgradeable(state)) {
-        plans.push({ skill, scope: targetScope });
-      }
-    }
-  }
-
-  return plans;
-}
-
-function runSkillsAdd(input: {
-  runner: Runner;
-  repo: string;
-  skillName: string;
-  global: boolean;
-  dryRun: boolean;
-}): void {
-  const args = buildSkillsAddArgs(input.runner, input.repo, input.skillName, input.global);
-  const command = input.runner;
-  console.log(formatCommand(command, args));
-
-  if (input.dryRun) {
-    return;
-  }
-
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`${command} exited with status ${result.status ?? "unknown"}.`);
-  }
-}
-
-function buildSkillsAddArgs(runner: Runner, repo: string, skillName: string, global: boolean): string[] {
-  const args = runner === "npx" ? ["-y", "skills", "add", repo] : ["skills", "add", repo];
-  args.push("--skill", skillName);
-  if (global) {
-    args.push("-g", "-y");
-  } else {
-    args.push("-y");
-  }
-  return args;
 }
 
 function parseScope(value: string | undefined): QueryScope {
@@ -534,21 +363,6 @@ function parseRunner(value: string | undefined): Runner {
   }
 
   throw new Error(`Invalid runner: ${value}. Expected npx or bunx.`);
-}
-
-function selectedScopes(scope: QueryScope): InstalledScope[] {
-  if (scope === "both") {
-    return ["project", "global"];
-  }
-  return [scope];
-}
-
-function isUpgradeable(state: VersionDiff["state"]): boolean {
-  return state === "outdated" || state === "different" || state === "unknown";
-}
-
-function isUpgradeAvailable(state: VersionDiff["state"]): boolean {
-  return state === "outdated" || state === "different";
 }
 
 function stringOption(parsed: ParsedArgs, key: string): string | undefined {
@@ -602,44 +416,68 @@ function printUploadResult(result: UploadResult): void {
 }
 
 function printHelp(command: string | undefined): void {
-  switch (command) {
-    case "list":
-    case "ls":
-      console.log(LIST_HELP);
-      return;
-    case "check":
-    case "update":
-      console.log(CHECK_HELP);
-      return;
-    case "install":
-    case "add":
-      console.log(INSTALL_HELP);
-      return;
-    case "upgrade":
-      console.log(UPGRADE_HELP);
-      return;
-    case "upload":
-    case "publish":
-      console.log(UPLOAD_HELP);
-      return;
-    default:
-      console.log(ROOT_HELP);
-  }
+  console.log(findCommandSpec(command)?.help() ?? formatRootHelp());
 }
 
-const ROOT_HELP = `Skillet skill administration CLI.
+function findCommandSpec(command: string | undefined): CommandSpec | undefined {
+  return command ? COMMANDS_BY_NAME.get(command) : undefined;
+}
+
+function buildCommandMap(commands: readonly CommandSpec[]): Map<string, CommandSpec> {
+  const map = new Map<string, CommandSpec>();
+  for (const command of commands) {
+    for (const name of [command.name, ...command.aliases]) {
+      if (map.has(name)) {
+        throw new Error(`Duplicate command name or alias: ${name}`);
+      }
+      map.set(name, command);
+    }
+  }
+  return map;
+}
+
+function buildLongOptionMap(options: readonly CliOption[]): Map<string, CliOption> {
+  const map = new Map<string, CliOption>();
+  for (const option of options) {
+    const existing = map.get(option.name);
+    if (existing && existing.kind !== option.kind) {
+      throw new Error(`Conflicting option kind for --${option.name}`);
+    }
+    map.set(option.name, option);
+  }
+  return map;
+}
+
+function buildShortOptionMap(options: readonly CliOption[]): Map<string, CliOption> {
+  const map = new Map<string, CliOption>();
+  for (const option of options) {
+    if (!option.short) {
+      continue;
+    }
+
+    const existing = map.get(option.short);
+    if (existing && existing.name !== option.name) {
+      throw new Error(`Conflicting short option -${option.short}`);
+    }
+    map.set(option.short, option);
+  }
+  return map;
+}
+
+function formatRootHelp(): string {
+  const commandWidth = Math.max(...COMMAND_SPECS.map((command) => command.name.length));
+  const commands = COMMAND_SPECS
+    .map((command) => `  ${command.name.padEnd(commandWidth)}  ${command.description}`)
+    .join("\n");
+
+  return `Skillet skill administration CLI.
 
 Usage:
   skillet <command> [options]
   skillet -h | --help
 
 Commands:
-  list      List catalog skills with installed version diffs.
-  check     Check installed Skillet skills for available upgrades.
-  install   Install one skill or all catalog skills via skills add.
-  upgrade   Upgrade installed Skillet skills via skills add.
-  upload    Publish or sync a local skill bundle into Skillet.
-  help      Show help for a command.
+${commands}
 
 Global options:
   --catalog <path>      Use a different Skillet catalog root.
@@ -656,6 +494,7 @@ Examples:
   skillet upgrade
   skillet upload ~/.codex/skills/my-skill coding --dry-run
 `;
+}
 
 const LIST_HELP = `List Skillet catalog skills with installed version diffs.
 
@@ -750,5 +589,75 @@ Examples:
   skillet upload ./my-skill coding --repo ~/Projects/skillet
   skillet upload ./my-skill coding --remote michaelpetrik/skillet
 `;
+
+const COMMAND_SPECS: readonly CommandSpec[] = [
+  {
+    name: "list",
+    aliases: ["ls"],
+    description: "List catalog skills with installed version diffs.",
+    help: () => LIST_HELP,
+    handler: commandList,
+    options: [SCOPE_OPTION, JSON_OPTION, GLOBAL_SCOPE_OPTION],
+  },
+  {
+    name: "check",
+    aliases: ["update"],
+    description: "Check installed Skillet skills for available upgrades.",
+    help: () => CHECK_HELP,
+    handler: commandCheck,
+    options: [SCOPE_OPTION, INCLUDE_MISSING_OPTION, JSON_OPTION, GLOBAL_SCOPE_OPTION],
+  },
+  {
+    name: "install",
+    aliases: ["add"],
+    description: "Install one skill or all catalog skills via skills add.",
+    help: () => INSTALL_HELP,
+    handler: commandInstall,
+    options: [RUNNER_OPTION, REPO_OPTION, GLOBAL_SCOPE_OPTION, DRY_RUN_OPTION],
+  },
+  {
+    name: "upgrade",
+    aliases: [],
+    description: "Upgrade installed Skillet skills via skills add.",
+    help: () => UPGRADE_HELP,
+    handler: commandUpgrade,
+    options: [SCOPE_OPTION, RUNNER_OPTION, REPO_OPTION, FORCE_OPTION, PROJECT_ONLY_OPTION, GLOBAL_SCOPE_OPTION, DRY_RUN_OPTION],
+  },
+  {
+    name: "upload",
+    aliases: ["publish"],
+    description: "Publish or sync a local skill bundle into Skillet.",
+    help: () => UPLOAD_HELP,
+    handler: commandUpload,
+    options: [
+      REPO_OPTION,
+      REMOTE_OPTION,
+      REMOTE_URL_OPTION,
+      BRANCH_OPTION,
+      COMMIT_MESSAGE_OPTION,
+      TARGET_NAME_OPTION,
+      DRY_RUN_OPTION,
+      KEEP_TEMP_OPTION,
+      JSON_OPTION,
+      CATEGORY_OPTION,
+    ],
+  },
+  {
+    name: "help",
+    aliases: [],
+    description: "Show help for a command.",
+    help: formatRootHelp,
+    handler: commandHelp,
+    options: [],
+  },
+];
+
+const OPTION_SCHEMA: readonly CliOption[] = [
+  ...GLOBAL_OPTIONS,
+  ...COMMAND_SPECS.flatMap((command) => command.options),
+];
+const COMMANDS_BY_NAME = buildCommandMap(COMMAND_SPECS);
+const LONG_OPTIONS = buildLongOptionMap(OPTION_SCHEMA);
+const SHORT_OPTIONS = buildShortOptionMap(OPTION_SCHEMA);
 
 main();

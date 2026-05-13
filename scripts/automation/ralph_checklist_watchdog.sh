@@ -127,6 +127,14 @@ run_output_size() {
     | awk '{ total += $1 } END { printf "%d", total }'
 }
 
+worktree_status() {
+  if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" status --short --untracked-files=all
+  else
+    printf 'not a git worktree\n'
+  fi
+}
+
 last_spawn_epoch() {
   local stamp="$RUNTIME_ROOT/last-spawn.epoch"
   if [[ -f "$stamp" ]]; then cat "$stamp" 2>/dev/null || printf '0'; else printf '0'; fi
@@ -272,6 +280,13 @@ if watchdog_run_active "$latest_run"; then
 fi
 
 if (( active_count == 0 )); then
+  dirty_status="$(worktree_status)"
+  if [[ -n "$dirty_status" && "${RALPH_WATCHDOG_ALLOW_DIRTY_WORKTREE:-false}" != "true" ]]; then
+    printf '%s\n' "$dirty_status" >"$RUNTIME_ROOT/worktree-status.txt"
+    write_health "blocked" "worktree has uncommitted changes; refusing to spawn Ralph" "0" "$latest_run"
+    write_incident "dirty-worktree" "0" "$latest_run"
+    exit 0
+  fi
   write_incident "no-active-agent" "0" "$latest_run"
   spawn_recovery "no-active-agent" "0" "$latest_run"
   exit 0
