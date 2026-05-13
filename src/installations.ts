@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { InstalledScope, InstalledSkill, QueryScope, slugToTitle } from "./domain.js";
 import { extractFrontmatterValue, extractH1, parseDocument } from "./frontmatter.js";
+import { findInstalledSkillFiles } from "./skill-files.js";
 
 export interface InstallationRoots {
   project?: string;
@@ -26,7 +27,7 @@ export function loadInstalledScope(scope: InstalledScope, root: string | undefin
     return installed;
   }
 
-  for (const skillPath of findSkillFiles(root)) {
+  for (const skillPath of findInstalledSkillFiles(root)) {
     const text = fs.readFileSync(skillPath, "utf8");
     const document = parseDocument(text);
     const skillRoot = path.dirname(skillPath);
@@ -44,23 +45,4 @@ export function loadInstalledScope(scope: InstalledScope, root: string | undefin
   }
 
   return installed;
-}
-
-function findSkillFiles(root: string): string[] {
-  const results: string[] = [];
-  const entries = fs.readdirSync(root, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      const skillPath = path.join(fullPath, "SKILL.md");
-      if (fs.existsSync(skillPath)) {
-        results.push(skillPath);
-      } else {
-        results.push(...findSkillFiles(fullPath));
-      }
-    }
-  }
-
-  return results;
 }

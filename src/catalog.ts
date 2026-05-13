@@ -3,9 +3,7 @@ import path from "node:path";
 import { Skill, slugToTitle } from "./domain.js";
 import { extractFrontmatterValue, extractH1, parseDocument } from "./frontmatter.js";
 import { relativeFrom } from "./paths.js";
-
-const SKILL_FILE = "SKILL.md";
-const CHANGELOG_FILE = "CHANGELOG.md";
+import { CHANGELOG_FILE, findCatalogSkillFiles } from "./skill-files.js";
 
 export function loadCatalogSkills(catalogRoot: string): Skill[] {
   const skillsRoot = path.join(catalogRoot, "skills");
@@ -13,7 +11,7 @@ export function loadCatalogSkills(catalogRoot: string): Skill[] {
     throw new Error(`Catalog root does not contain a skills directory: ${catalogRoot}`);
   }
 
-  return findSkillFiles(skillsRoot)
+  return findCatalogSkillFiles(skillsRoot)
     .map((skillPath) => readSkill(skillPath, catalogRoot, skillsRoot))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -48,25 +46,6 @@ export function readSkill(skillPath: string, catalogRoot: string, skillsRoot?: s
 
 export function findCatalogSkill(skills: Skill[], name: string): Skill | undefined {
   return skills.find((skill) => skill.name === name || path.basename(skill.path) === name);
-}
-
-function findSkillFiles(root: string): string[] {
-  const results: string[] = [];
-  const entries = fs.readdirSync(root, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...findSkillFiles(fullPath));
-      continue;
-    }
-
-    if (entry.isFile() && entry.name === SKILL_FILE) {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
 }
 
 function readLatestChangelogVersion(changelogPath: string): string | undefined {

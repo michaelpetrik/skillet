@@ -18,9 +18,7 @@ import {
   setFrontmatterFields,
 } from "./frontmatter.js";
 import { relativeFrom, resolvePath } from "./paths.js";
-
-const SKILL_FILE = "SKILL.md";
-const CHANGELOG_FILE = "CHANGELOG.md";
+import { CHANGELOG_FILE, SKILL_FILE } from "./skill-files.js";
 const README_RELATIVE_PATH = path.join("skills", "README.md");
 
 export interface UploadOptions {
