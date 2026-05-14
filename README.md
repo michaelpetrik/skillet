@@ -2,12 +2,16 @@
 
 Skillet is a lightweight CLI for administering the skills published from this repository.
 
+The package manifest is scoped as `@michaelpetrik/skillet`; the installed binary remains `skillet`.
+
+After the package is made publishable and released:
+
 ```bash
-npx skillet --help
-bunx skillet --help
+npx @michaelpetrik/skillet --help
+bunx @michaelpetrik/skillet --help
 ```
 
-> npm already has an unscoped `skillet` package. This manifest uses the requested package name and binary name, so publishing under `skillet` requires ownership or transfer of that npm package. If the package must be published under a scope, change `name` to something like `@michaelpetrik/skillet`; the installed binary can still remain `skillet`.
+> npm already has an unscoped `skillet` package. This manifest keeps the binary name as `skillet` but avoids the taken package name. It is currently `private: true` and `UNLICENSED`, so public publishing remains blocked until npm scope access and license intent are deliberately reviewed.
 
 ## Commands
 
@@ -44,6 +48,8 @@ npm pack --dry-run
 The loop uses `docs/REFACTOR_PLAN.md` as its checklist and writes runtime artifacts under `var/`.
 
 ## Publishing
+
+The manifest currently sets `private: true`, so direct publishing is intentionally blocked. Before a public release, confirm access to the `@michaelpetrik` npm scope, choose and record the license intent, remove `private`, and add the intended `publishConfig.access`.
 
 ```bash
 npm publish --dry-run

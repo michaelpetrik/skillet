@@ -1,10 +1,11 @@
 {
-  "name": "skillet",
+  "name": "@michaelpetrik/skillet",
   "version": "0.1.0",
+  "private": true,
   "description": "CLI tools for administering Skillet agent skills.",
   "type": "module",
   "bin": {
-    "skillet": "./dist/cli.js"
+    "skillet": "dist/cli.js"
   },
   "main": "./dist/cli.js",
   "files": [
@@ -39,9 +40,6 @@
   "homepage": "https://github.com/michaelpetrik/skillet#readme",
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
