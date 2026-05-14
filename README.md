@@ -33,9 +33,15 @@ Project scoped installs pass `-y`. Global installs pass `-g -y`.
 ```bash
 npm install
 npm run build
+scripts/ci/run_quality_gates.sh
+npm run security:review
 node dist/cli.js list
 npm pack --dry-run
 ```
+
+`npm run security:review` performs an all-files secret scan and reports npm
+advisory coverage as partial unless run with `-- --with-advisory`, which uses
+live registry data.
 
 ## Ralph loop
 
