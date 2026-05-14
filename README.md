@@ -34,6 +34,7 @@ Project scoped installs pass `-y`. Global installs pass `-g -y`.
 npm install
 npm run build
 npm run quality
+npm run package:smoke
 scripts/dev/install_git_hooks.sh
 scripts/ci/run_quality_gates.sh
 npm run security:review
@@ -49,6 +50,9 @@ configured Sentrux checks.
 `npm run security:review` performs an all-files secret scan and reports npm
 advisory coverage as partial unless run with `-- --with-advisory`, which uses
 live registry data.
+
+`npm run package:smoke` builds a local tarball, checks the packaged file list,
+installs it into a temporary project, and runs the packaged `skillet` bin.
 
 ## Ralph loop
 

@@ -20,6 +20,7 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "quality": "scripts/ci/run_quality_gates.sh",
     "quality:precommit": "scripts/ci/pre_commit.sh",
+    "package:smoke": "scripts/ci/package_smoke.sh",
     "security:review": "scripts/ci/security_review.sh",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build"
