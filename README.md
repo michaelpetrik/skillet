@@ -33,11 +33,18 @@ Project scoped installs pass `-y`. Global installs pass `-g -y`.
 ```bash
 npm install
 npm run build
+npm run quality
+scripts/dev/install_git_hooks.sh
 scripts/ci/run_quality_gates.sh
 npm run security:review
 node dist/cli.js list
 npm pack --dry-run
 ```
+
+`scripts/dev/install_git_hooks.sh` sets `core.hooksPath` to `.githooks`. The
+pre-commit hook runs the changed-file secret scan before `npm test`; the
+pre-push hook runs the full quality gate, including the pack dry-run and
+configured Sentrux checks.
 
 `npm run security:review` performs an all-files secret scan and reports npm
 advisory coverage as partial unless run with `-- --with-advisory`, which uses
