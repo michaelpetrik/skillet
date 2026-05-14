@@ -46,7 +46,7 @@ run_capture "CLI list smoke" "$tmp_dir/skillet-list.json" \
 run_capture "CLI check smoke" "$tmp_dir/skillet-check.txt" \
   node dist/cli.js check --catalog "$REPO_ROOT" --project "$REPO_ROOT" --global-dir "$tmp_dir/global-skills"
 
-run_capture "npm pack dry-run" "$tmp_dir/npm-pack.txt" npm pack --dry-run
+run npm run package:smoke
 
 sentrux_rules="${SENTRUX_RULES_FILE:-.sentrux/rules.toml}"
 sentrux_baseline="${SENTRUX_BASELINE_FILE:-.sentrux/baseline.json}"
