@@ -112,6 +112,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
 
 ## Coding
 
+
 - **[Enforce Offline Gates](./coding/enforce-offline-gates/SKILL.md)**: Enforce deterministic offline quality/security/performance/architecture gates in any repository by detecting current languages/frameworks/package managers, selecting compatible static-analysis tooling, installing and wiring tools, and enforcing execution via git hooks and CI entrypoints. Use when the user asks to set up or harden guardrails, create offline gates, enforce pre-commit/pre-push checks, standardize quality protocol across mixed stacks, or bootstrap repeatable gate workflows for Next.js, frontend, backend, monorepos, or polyglot projects.
 
   **Install using skills.sh:**
@@ -155,6 +156,19 @@ This directory contains specialized skills that extend the capabilities of AI ag
   bunx skills add michaelpetrik/skillet --skill repo-quality-guardrails
   ```
 
+- **[Repo Setup](./coding/repo-setup/SKILL.md)**: Bootstrap or retrofit a repository for AI-orchestrated development with Ralph-style loops, quality gates, ADRs, TDD split authorship, Codex Spark implementation tasks, and release/deployment controls. Use when setting up a new repo, hardening an existing repo, adding the three-loop workflow for specification/TDD/deployment, creating repo-local `.ralph` contracts, defining DoD/AC/ADR templates, or preparing automated AI development guardrails.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill repo-setup
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill repo-setup
+  ```
 ## Environment Setup
 
 - **[iTerm Directory Colors](./environment-setup/iterm-dir-colors/SKILL.md)**: Configure project-local iTerm2 directory colors by creating or updating `.iterm2-colors` files. Use when the user wants a repo or folder tinted in iTerm, wants a chosen or auto-picked color, prefers dark backgrounds, or wants badge text derived from the directory name.
@@ -169,20 +183,4 @@ This directory contains specialized skills that extend the capabilities of AI ag
   With `bun`:
   ```bash
   bunx skills add michaelpetrik/skillet --skill iterm-dir-colors
-  ```
-
-## Vývoj
-
-- **[Repo Setup](./vývoj/repo-setup/SKILL.md)**: Bootstrap or retrofit a repository for AI-orchestrated development with Ralph-style loops, quality gates, ADRs, TDD split authorship, Codex Spark implementation tasks, and release/deployment controls. Use when setting up a new repo, hardening an existing repo, adding the three-loop workflow for specification/TDD/deployment, creating repo-local `.ralph` contracts, defining DoD/AC/ADR templates, or preparing automated AI development guardrails.
-
-  **Install using skills.sh:**
-
-  With `npm`:
-  ```bash
-  npx skills add michaelpetrik/skillet --skill repo-setup
-  ```
-
-  With `bun`:
-  ```bash
-  bunx skills add michaelpetrik/skillet --skill repo-setup
   ```

@@ -1,7 +1,7 @@
 ---
 name: repo-setup
 description: Bootstrap or retrofit a repository for AI-orchestrated development with Ralph-style loops, quality gates, ADRs, TDD split authorship, Codex Spark implementation tasks, and release/deployment controls. Use when setting up a new repo, hardening an existing repo, adding the three-loop workflow for specification/TDD/deployment, creating repo-local `.ralph` contracts, defining DoD/AC/ADR templates, or preparing automated AI development guardrails.
-category: Vývoj
+category: Coding
 version: 1.0.0
 ---
 
