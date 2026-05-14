@@ -44,8 +44,8 @@ npm pack --dry-run
 
 `scripts/dev/install_git_hooks.sh` sets `core.hooksPath` to `.githooks`. The
 pre-commit hook runs the changed-file secret scan before `npm test`; the
-pre-push hook runs the full quality gate, including the package smoke and
-configured Sentrux checks.
+pre-push hook runs the full quality gate, including offline security review,
+the package smoke, and configured Sentrux checks.
 
 `npm run security:review` performs an all-files secret scan and reports npm
 advisory coverage as partial unless run with `-- --with-advisory`, which uses

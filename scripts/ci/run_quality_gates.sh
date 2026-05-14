@@ -33,7 +33,7 @@ require_command() {
   fi
 }
 
-run "$SCRIPT_DIR/secret_scan.sh"
+run npm run security:review -- --offline
 
 run npm run typecheck
 run npm run build
