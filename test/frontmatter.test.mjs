@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   canonicalSkillText,
   extractFrontmatterValue,
+  extractH1,
   parseDocument,
   setFrontmatterFields,
 } from "../dist/frontmatter.js";
@@ -22,6 +23,29 @@ test("parseDocument extracts CRLF frontmatter", () => {
   assert.equal(document.body, "# Alpha\r\n");
 });
 
+test("parseDocument keeps original text when frontmatter delimiters are incomplete or empty", () => {
+  const noOpening = parseDocument("# Alpha\n");
+  assert.deepEqual(noOpening, {
+    hasFrontmatter: false,
+    frontmatterLines: [],
+    body: "# Alpha\n",
+  });
+
+  const noClosing = parseDocument("---\nname: alpha\n# Alpha\n");
+  assert.deepEqual(noClosing, {
+    hasFrontmatter: false,
+    frontmatterLines: [],
+    body: "---\nname: alpha\n# Alpha\n",
+  });
+
+  const emptyFrontmatter = parseDocument("---\n---\n# Alpha\n");
+  assert.deepEqual(emptyFrontmatter, {
+    hasFrontmatter: false,
+    frontmatterLines: [],
+    body: "---\n---\n# Alpha\n",
+  });
+});
+
 test("extractFrontmatterValue handles scalar, quoted, folded, and literal values", () => {
   assert.equal(extractFrontmatterValue(["name: 'alpha'"], "name"), "alpha");
   assert.equal(
@@ -32,6 +56,18 @@ test("extractFrontmatterValue handles scalar, quoted, folded, and literal values
     extractFrontmatterValue(["description: |", "  first line", "  second line", "category: General"], "description"),
     "first line\nsecond line",
   );
+});
+
+test("extractFrontmatterValue supports block chomping indicators and missing keys", () => {
+  assert.equal(
+    extractFrontmatterValue(["description: >-", "  first line", "  second line", "category: General"], "description"),
+    "first line second line",
+  );
+  assert.equal(
+    extractFrontmatterValue(["description: |+", "  first line", "  second line", "category: General"], "description"),
+    "first line\nsecond line",
+  );
+  assert.equal(extractFrontmatterValue(["name: alpha"], "description"), undefined);
 });
 
 test("setFrontmatterFields inserts category and version after description", () => {
@@ -45,4 +81,9 @@ test("canonicalSkillText ignores category and version only", () => {
   const left = "---\nname: alpha\ndescription: Alpha\ncategory: General\nversion: 1.0.0\n---\n# Alpha\n";
   const right = "---\nname: alpha\ndescription: Alpha\ncategory: Coding\nversion: 9.9.9\n---\n# Alpha\n";
   assert.equal(canonicalSkillText(left), canonicalSkillText(right));
+});
+
+test("extractH1 returns the first H1 and ignores other headings", () => {
+  assert.equal(extractH1("## Intro\n#  Alpha Skill  \n# Second\n"), "Alpha Skill");
+  assert.equal(extractH1("## Intro\n### Details\n"), undefined);
 });

@@ -90,3 +90,21 @@ test("uploadSkill does not duplicate CHANGELOG entries when the plan has no cont
     assert.doesNotMatch(changelog, /2026-02-04/);
   });
 });
+
+test("uploadSkill removes stale published files and reports removal paths", () => {
+  withFixture(({ repoRoot, sourceRoot }) => {
+    const initial = runUpload({ repoRoot, sourceRoot, dryRun: false, clock: fixedClock });
+    const stalePath = path.join(initial.targetRoot, "stale.txt");
+    fs.writeFileSync(stalePath, "stale artifact\n");
+
+    const updated = runUpload({ repoRoot, sourceRoot, dryRun: false, clock: laterClock });
+
+    assert.deepEqual(updated.removed, ["stale.txt"]);
+    assert.deepEqual(updated.filesRemoved, ["skills/coding/planned-skill/stale.txt"]);
+    assert.equal(fs.existsSync(stalePath), false);
+    assert.match(
+      fs.readFileSync(path.join(updated.targetRoot, "CHANGELOG.md"), "utf8"),
+      /Removed stale published file `stale\.txt`\./,
+    );
+  });
+});

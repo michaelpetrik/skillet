@@ -26,18 +26,36 @@ function withFixture(callback) {
 }
 
 function runUpload(input) {
-  return uploadSkill({
+  const options = {
     source: input.sourceRoot,
     category: "coding",
-    repo: input.repoRoot,
     branch: "main",
     dryRun: input.dryRun,
     keepTemp: false,
     targetName: input.targetName,
-    commandRunner: {
+    commandRunner: input.commandRunner ?? {
       run: () => ({ status: 1, stdout: "", stderr: "no git remote" }),
     },
-  });
+  };
+  if (input.remote) {
+    options.remote = input.remote;
+  } else {
+    options.repo = input.repoRoot;
+  }
+  return uploadSkill(options);
+}
+
+function createTrackingRunner() {
+  const calls = [];
+  return {
+    calls,
+    runner: {
+      run(command, args, options = {}) {
+        calls.push({ command, args: [...args], options: { ...options } });
+        return { status: 1, stdout: "", stderr: "not reached" };
+      },
+    },
+  };
 }
 
 const unsafeTargetNames = [
@@ -52,10 +70,19 @@ const unsafeTargetNames = [
 for (const [label, targetName] of unsafeTargetNames) {
   test(`uploadSkill rejects ${label} target names before live mutations`, () => {
     withFixture(({ repoRoot, sourceRoot }) => {
+      const tracker = createTrackingRunner();
       assert.throws(
-        () => runUpload({ repoRoot, sourceRoot, targetName, dryRun: false }),
+        () =>
+          runUpload({
+            repoRoot,
+            sourceRoot,
+            targetName,
+            dryRun: false,
+            commandRunner: tracker.runner,
+          }),
         /Invalid target name/,
       );
+      assert.deepEqual(tracker.calls, []);
       assert.deepEqual(fs.readdirSync(path.join(repoRoot, "skills")).sort(), ["README.md"]);
     });
   });
@@ -63,10 +90,37 @@ for (const [label, targetName] of unsafeTargetNames) {
 
 test("uploadSkill rejects unsafe target names before dry-run reporting", () => {
   withFixture(({ repoRoot, sourceRoot }) => {
+    const tracker = createTrackingRunner();
     assert.throws(
-      () => runUpload({ repoRoot, sourceRoot, targetName: "../escape", dryRun: true }),
+      () =>
+        runUpload({
+          repoRoot,
+          sourceRoot,
+          targetName: "../escape",
+          dryRun: true,
+          commandRunner: tracker.runner,
+        }),
       /Invalid target name/,
     );
+    assert.deepEqual(tracker.calls, []);
+  });
+});
+
+test("uploadSkill rejects unsafe target names before remote checkout side effects", () => {
+  withFixture(({ sourceRoot }) => {
+    const tracker = createTrackingRunner();
+    assert.throws(
+      () =>
+        runUpload({
+          sourceRoot,
+          targetName: "../escape",
+          dryRun: false,
+          remote: "owner/repo",
+          commandRunner: tracker.runner,
+        }),
+      /Invalid target name/,
+    );
+    assert.deepEqual(tracker.calls, []);
   });
 });
 

@@ -2,9 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  bumpPatch,
   choosePublicationVersion,
+  compareSemver,
   compareInstalledVersion,
+  isSemver,
 } from "../dist/domain.js";
+
+test("semver helpers validate, compare, and bump with current strict semantics", () => {
+  assert.equal(isSemver("1.2.3"), true);
+  assert.equal(isSemver("1.2"), false);
+  assert.equal(isSemver("1.2.3-beta.1"), false);
+  assert.equal(isSemver(undefined), false);
+
+  assert.equal(compareSemver("1.2.3", "1.2.3"), 0);
+  assert.equal(compareSemver("1.2.4", "1.2.3"), 1);
+  assert.equal(compareSemver("1.2.2", "1.2.3"), -1);
+
+  assert.equal(bumpPatch("1.2.3"), "1.2.4");
+  assert.equal(bumpPatch("latest"), "1.0.0");
+});
 
 test("compareInstalledVersion classifies current, outdated, newer, unknown, and different versions", () => {
   assert.deepEqual(compareInstalledVersion("1.2.3", "1.2.3"), {
@@ -27,6 +44,10 @@ test("compareInstalledVersion classifies current, outdated, newer, unknown, and 
     state: "different",
     label: "1.2.3 -> latest",
   });
+  assert.deepEqual(compareInstalledVersion("latest", "latest"), {
+    state: "current",
+    label: "current",
+  });
 });
 
 test("choosePublicationVersion preserves source version for new publishes", () => {
@@ -42,5 +63,12 @@ test("choosePublicationVersion keeps existing version when unchanged", () => {
 test("choosePublicationVersion bumps or accepts newer source versions when changed", () => {
   assert.equal(choosePublicationVersion("1.2.3", "1.2.4", true, true), "1.2.4");
   assert.equal(choosePublicationVersion("1.2.3", "1.2.3", true, true), "1.2.4");
+  assert.equal(choosePublicationVersion("1.2.3", "1.2.2", true, true), "1.2.4");
   assert.equal(choosePublicationVersion("1.2.3", undefined, true, true), "1.2.4");
+});
+
+test("choosePublicationVersion handles invalid existing/source versions across changed states", () => {
+  assert.equal(choosePublicationVersion("draft", "preview", true, false), "1.0.0");
+  assert.equal(choosePublicationVersion("draft", "2.0.0", true, true), "2.0.0");
+  assert.equal(choosePublicationVersion("draft", "preview", true, true), "1.0.0");
 });
