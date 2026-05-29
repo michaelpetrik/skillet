@@ -64,20 +64,6 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill codex-langfuse-hook
   ```
-
-- **[Langfuse Telemetry](./tracing/langfuse-telemetry/SKILL.md)**: Set up and manage Claude Code session telemetry to self-hosted Langfuse with OTel metrics and Stop hook transcript exports.
-
-  **Install using skills.sh:**
-
-  With `npm`:
-  ```bash
-  npx skills add michaelpetrik/skillet --skill langfuse-telemetry
-  ```
-
-  With `bun`:
-  ```bash
-  bunx skills add michaelpetrik/skillet --skill langfuse-telemetry
-  ```
 ## Misc
 
 - **[Publish Skill To Skillet](./misc/publish-skill-to-skillet/SKILL.md)**: Publish or sync a local Codex skill bundle into the skillet repository under skills/<category>/<skill-name>, including SKILL.md, bundled resources, CHANGELOG.md, and skills/README.md updates.
