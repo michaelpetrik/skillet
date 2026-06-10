@@ -21,6 +21,7 @@ This directory contains specialized skills that extend the capabilities of AI ag
 ## General
 
 
+
 - **[Claude Code Conventions](./general/claudecode-conventions/SKILL.md)**: Guidelines for Claude Code to maintain project structure and documentation naming (e.g., using `AGENTS.md` instead of `CLAUDE.md`).
 
   **Install using skills.sh:**
@@ -47,6 +48,20 @@ This directory contains specialized skills that extend the capabilities of AI ag
   With `bun`:
   ```bash
   bunx skills add michaelpetrik/skillet --skill repo-notes
+  ```
+
+- **[PRD Orchestrator](./general/prd-orchestrator/SKILL.md)**: Orchestrate a gated PRD workflow across discovery-process, grill-me, and prd. Use when the user wants an end-to-end product planning flow from a raw idea or scattered notes to a pressure-tested final PRD with working docs under projects/<slug>/. If one of the required skills is missing, detect it and install it with `npx skills` before continuing.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill prd-orchestrator
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill prd-orchestrator
   ```
 ## Tracing
 

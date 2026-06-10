@@ -1,0 +1,7 @@
+interface:
+  display_name: "PRD Orchestrator"
+  short_description: "Gated PRD workflow with discovery and review"
+  default_prompt: "Use $prd-orchestrator to run discovery, close open decisions, and draft a final PRD."
+
+policy:
+  allow_implicit_invocation: true
