@@ -63,6 +63,20 @@ This directory contains specialized skills that extend the capabilities of AI ag
   ```bash
   bunx skills add michaelpetrik/skillet --skill prd-orchestrator
   ```
+
+- **[Stack Grill](./general/stack-grill/SKILL.md)**: Grill an AI-proposed tech stack (or a project idea) before the vibecoder builds on it. Rolls the six faces of the "loaded die" - cost at 10x traffic, exit and lock-in, data location and GDPR, who runs it at 3 a.m., who pays and where (CZ cards, QR/bank transfer, VAT, MoR vs gateway), and what the team already knows. Forces at least two alternatives per layer (hosting, DB/BaaS, auth, payments, language/framework) and ends with a decision table plus open risks. Use when the user says "grill my stack", "is Vercel/Supabase/Stripe right for me", "rozgriluj stack", "jaký stack", "AI mi navrhla Next.js + Vercel + Supabase + Stripe", or pastes a stack proposal from an AI.
+
+  **Install using skills.sh:**
+
+  With `npm`:
+  ```bash
+  npx skills add michaelpetrik/skillet --skill stack-grill
+  ```
+
+  With `bun`:
+  ```bash
+  bunx skills add michaelpetrik/skillet --skill stack-grill
+  ```
 ## Tracing
 
 
