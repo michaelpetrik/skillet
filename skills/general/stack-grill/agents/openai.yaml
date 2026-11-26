@@ -1,0 +1,7 @@
+interface:
+  display_name: "Stack Grill"
+  short_description: "Grill an AI-proposed tech stack across six faces of a loaded die"
+  default_prompt: "Use $stack-grill to grill the stack the AI proposed for my project."
+
+policy:
+  allow_implicit_invocation: true
